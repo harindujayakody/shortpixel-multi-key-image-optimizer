@@ -43,12 +43,15 @@ export class ShortPixelClient {
     const key = apiKey.trim();
 
     try {
-      // First try JSON POST to api-status.php
+      // ShortPixel api-status.php requires application/x-www-form-urlencoded
+      const params = new URLSearchParams();
+      params.append('key', key);
+
       const res = await axios.post(
         SHORTPIXEL_ENDPOINTS.API_STATUS,
-        { key },
+        params.toString(),
         {
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           timeout: 15000,
           validateStatus: () => true
         }
@@ -56,7 +59,7 @@ export class ShortPixelClient {
 
       let data = res.data;
 
-      // Some endpoints return stringified JSON or plain text
+      // Parse string if needed
       if (typeof data === 'string') {
         try {
           data = JSON.parse(data);
@@ -66,9 +69,11 @@ export class ShortPixelClient {
       }
 
       if (data && typeof data === 'object') {
-        const statusCode = data.Status?.Code ?? data.Status ?? 0;
+        const rawCode = data.Status?.Code ?? data.Status ?? 0;
+        const statusCode = parseInt(rawCode, 10);
         const message = data.Status?.Message ?? data.Message ?? 'OK';
 
+        // Error codes from ShortPixel are negative numbers (e.g. -101 Invalid, -102 Quota)
         if (statusCode < 0) {
           const isQuota = statusCode === -102 || /quota|credit/i.test(message);
           const isInvalid = statusCode === -101 || /invalid/i.test(message);
@@ -83,46 +88,66 @@ export class ShortPixelClient {
           };
         }
 
-        // Calculate total remaining credits
-        const monthly = parseInt(data.MonthlyCreditsRemaining ?? data.MonthlyCredits ?? 0, 10) || 0;
-        const purchased = parseInt(data.PurchasedCreditsRemaining ?? data.PurchasedCredits ?? 0, 10) || 0;
-        const totalRemaining = parseInt(
-          data.CreditsRemaining ?? data.TotalCreditsRemaining ?? (monthly + purchased),
-          10
-        );
+        // Status Code 2 or 1 or 0 means success
+        if (data.Unlimited === true) {
+          return {
+            key,
+            valid: true,
+            status: 'ACTIVE',
+            creditsRemaining: 999999,
+            totalCredits: 999999,
+            apiKeyType: data.PlanCode || 'unlimited',
+            message: 'Unlimited Credits',
+            raw: data
+          };
+        }
 
-        const totalCredits = parseInt(data.CreditsTotal ?? data.TotalCredits ?? 0, 10);
-        const callsMade = parseInt(data.APICallsMade ?? data.CallsMade ?? 0, 10);
+        // Compute remaining credits from ShortPixel quota & usage metrics
+        const monthlyQuota = parseInt(data.APICallsQuota ?? data.MonthlyCredits ?? 0, 10) || 0;
+        const monthlyMade = Math.floor(parseFloat(data.APICallsMade ?? 0)) || 0;
+        const monthlyRemaining = Math.max(0, monthlyQuota - monthlyMade);
+
+        const oneTimeQuota = Math.floor(parseFloat(data.APICallsQuotaOneTime ?? data.PurchasedCredits ?? 0)) || 0;
+        const oneTimeMade = Math.floor(parseFloat(data.APICallsMadeOneTime ?? 0)) || 0;
+        const oneTimeRemaining = Math.max(0, oneTimeQuota - oneTimeMade);
+
+        let totalRemaining = monthlyRemaining + oneTimeRemaining;
+        if (data.APICallsRemaining !== undefined) {
+          totalRemaining = parseInt(data.APICallsRemaining, 10);
+        } else if (data.CreditsRemaining !== undefined) {
+          totalRemaining = parseInt(data.CreditsRemaining, 10);
+        }
+
+        const totalCredits = monthlyQuota + oneTimeQuota;
 
         return {
           key,
           valid: true,
           status: totalRemaining > 0 ? 'ACTIVE' : 'EXHAUSTED',
           creditsRemaining: Math.max(0, totalRemaining),
-          monthlyCreditsRemaining: monthly,
-          purchasedCreditsRemaining: purchased,
+          monthlyCreditsRemaining: monthlyRemaining,
+          purchasedCreditsRemaining: oneTimeRemaining,
           totalCredits,
-          callsMade,
-          apiKeyType: data.APIKeyType ?? 'free',
-          message: totalRemaining > 0 ? 'Available' : 'Quota exhausted',
+          callsMade: monthlyMade + oneTimeMade,
+          apiKeyType: data.PlanCode || data.PlanType || 'free',
+          message: totalRemaining > 0 ? `${totalRemaining} credits available` : 'Quota exhausted',
           raw: data
         };
       }
 
-      // Fallback: If api-status is unavailable, probe with a minimal ping or assume valid
+      // Fallback
       return {
         key,
         valid: true,
         status: 'READY',
-        creditsRemaining: 100, // Default estimate until first compression
-        message: 'Key registered (unverified credits)',
+        creditsRemaining: 100,
+        message: 'Key registered',
         raw: data
       };
     } catch (err) {
-      // Network or parsing error
       return {
         key,
-        valid: true, // Don't mark invalid on network blip
+        valid: true,
         status: 'READY',
         creditsRemaining: 0,
         message: `Status check warning: ${err.message}`

@@ -27,6 +27,9 @@ const queue = new OptimizerQueue(stateStore, keyManager, client);
 if (fs.existsSync(KEYS_FILE)) {
   console.log(chalk.cyan(`[Startup] Loading keys from ${KEYS_FILE}...`));
   keyManager.loadKeysFromFile(KEYS_FILE);
+  keyManager.refreshAllKeys().catch(err => {
+    console.error(`[Startup] Failed to refresh keys: ${err.message}`);
+  });
 }
 
 // Log rotation events to console
