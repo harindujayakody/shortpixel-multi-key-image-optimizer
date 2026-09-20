@@ -169,6 +169,98 @@ export class ProxyManager extends EventEmitter {
   }
 
   /**
+   * Fetch and import the best proxies from Rola-IP API
+   */
+  async fetchAndImportFromRola(options = {}) {
+    const {
+      limit = 25,
+      maxLatency = 1500,
+      minUptime = 70,
+      protocol = 'all',
+      apiUrl = 'https://rola-ip.co/proxy-api/api/v1/proxies?page=1&pageSize=500'
+    } = options;
+
+    try {
+      const res = await axios.get(apiUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (ShortPixel-Studio/2.0)' },
+        timeout: 15000
+      });
+
+      const rawList = res.data?.data || [];
+      if (!Array.isArray(rawList) || rawList.length === 0) {
+        throw new Error('No proxy records returned from Rola-IP API');
+      }
+
+      // Filter based on criteria
+      const filtered = rawList.filter(item => {
+        if (!item.ip || !item.port) return false;
+        
+        // Protocol filter
+        if (protocol !== 'all') {
+          const itemProtocols = Array.isArray(item.protocols) ? item.protocols.map(p => p.toLowerCase()) : [];
+          if (!itemProtocols.includes(protocol.toLowerCase())) return false;
+        }
+
+        // Latency filter
+        if (item.latency && item.latency > maxLatency) return false;
+
+        // Uptime filter
+        if (item.uptime && item.uptime < minUptime) return false;
+
+        return true;
+      });
+
+      // Sort by best score: lowest latency and highest speed/uptime
+      filtered.sort((a, b) => {
+        const latA = a.latency || 9999;
+        const latB = b.latency || 9999;
+        if (latA !== latB) return latA - latB;
+        return (b.uptime || 0) - (a.uptime || 0);
+      });
+
+      const topCandidates = filtered.slice(0, limit);
+      const added = [];
+
+      for (const item of topCandidates) {
+        const proto = (Array.isArray(item.protocols) && item.protocols.length > 0)
+          ? item.protocols[0].toLowerCase()
+          : 'http';
+        const proxyUrl = `${proto}://${item.ip}:${item.port}`;
+        
+        const existing = this.getProxies().find(p => p.url === proxyUrl);
+        if (!existing) {
+          const proxyObj = {
+            id: `proxy_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+            url: proxyUrl,
+            protocol: proto,
+            status: 'READY',
+            latency: Math.round(item.latency || 0),
+            lastChecked: new Date().toISOString(),
+            country: item.country || item.code || null,
+            error: null
+          };
+          this.stateStore.addProxy(proxyObj);
+          added.push(proxyObj);
+        }
+      }
+
+      this.syncProxiesToFile();
+      this.emit('proxiesUpdated', this.getProxies());
+
+      return {
+        success: true,
+        fetchedTotal: rawList.length,
+        filteredCount: filtered.length,
+        importedCount: added.length,
+        proxies: this.getProxies()
+      };
+    } catch (err) {
+      console.error(`[ProxyManager] Error fetching from Rola-IP: ${err.message}`);
+      throw err;
+    }
+  }
+
+  /**
    * Test all proxies in the pool
    */
   async testAllProxies() {

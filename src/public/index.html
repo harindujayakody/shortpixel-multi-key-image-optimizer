@@ -216,15 +216,16 @@
 
           <!-- Tab Content 2: Proxies Pool -->
           <div id="tab-content-proxies" class="hidden p-4 space-y-3.5">
-            <div class="flex items-center justify-between">
-              <div class="flex items-center gap-2">
-                <label class="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">
-                  <input type="checkbox" id="setting-use-proxy" class="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-indigo-600 focus:ring-0">
-                  <span>Enable Proxy Pool</span>
-                </label>
-              </div>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <label class="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300 cursor-pointer">
+                <input type="checkbox" id="setting-use-proxy" class="rounded border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-indigo-600 focus:ring-0">
+                <span>Enable Proxy Pool</span>
+              </label>
               <div class="flex items-center gap-1">
-                <button id="btn-test-all-proxies" class="h-7 px-2 rounded-md border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-300 text-[11px] flex items-center gap-1 transition">
+                <button id="btn-toggle-fetch-remote" class="h-7 px-2 rounded-md bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 text-[11px] font-semibold flex items-center gap-1 border border-amber-500/20 transition" title="Auto-Fetch Best Fast Proxies from Rola-IP API">
+                  <i data-lucide="zap" class="w-3 h-3"></i> Auto-Fetch
+                </button>
+                <button id="btn-test-all-proxies" class="h-7 px-2 rounded-md border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-300 text-[11px] flex items-center gap-1 transition" title="Test Latency">
                   <i data-lucide="activity" class="w-3 h-3"></i> Test
                 </button>
                 <button id="btn-toggle-add-proxy" class="h-7 px-2 rounded-md bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 text-[11px] font-semibold flex items-center gap-1 transition">
@@ -233,10 +234,53 @@
               </div>
             </div>
 
+            <!-- Auto-Fetch Remote Proxies Options Box (Expandable) -->
+            <div id="box-fetch-remote" class="hidden p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 dark:bg-amber-950/10 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                  <i data-lucide="zap" class="w-3.5 h-3.5"></i> Fetch Best Live Proxies (Rola-IP)
+                </span>
+                <span class="text-[10px] text-zinc-400 font-mono">500 Public Feed</span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 text-[11px]">
+                <div>
+                  <label class="text-[10px] text-zinc-500 block mb-0.5">Protocol</label>
+                  <select id="fetch-remote-protocol" class="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded p-1 text-xs">
+                    <option value="all" selected>All</option>
+                    <option value="socks5">SOCKS5</option>
+                    <option value="http">HTTP</option>
+                    <option value="socks4">SOCKS4</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-[10px] text-zinc-500 block mb-0.5">Max Latency</label>
+                  <select id="fetch-remote-latency" class="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded p-1 text-xs">
+                    <option value="500">&lt; 500ms (Ultra)</option>
+                    <option value="1200" selected>&lt; 1200ms (Fast)</option>
+                    <option value="2500">&lt; 2500ms (Any)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="text-[10px] text-zinc-500 block mb-0.5">Quantity</label>
+                  <select id="fetch-remote-limit" class="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded p-1 text-xs">
+                    <option value="15">Top 15</option>
+                    <option value="25" selected>Top 25</option>
+                    <option value="50">Top 50</option>
+                  </select>
+                </div>
+              </div>
+              <div class="flex justify-end gap-1.5 pt-1">
+                <button id="btn-cancel-fetch-remote" class="px-2.5 py-1 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-white">Cancel</button>
+                <button id="btn-submit-fetch-remote" class="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-md text-xs font-semibold shadow-sm flex items-center gap-1">
+                  <i data-lucide="download-cloud" class="w-3 h-3"></i> Fetch & Import
+                </button>
+              </div>
+            </div>
+
             <!-- Add Proxy Box (Expandable) -->
             <div id="box-add-proxy" class="hidden p-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-black space-y-2">
-              <label class="text-[11px] text-zinc-500 dark:text-zinc-400">Proxy URLs (http://user:pass@host:port or socks5://...):</label>
-              <textarea id="input-new-proxies" rows="2" placeholder="http://127.0.0.1:8080" class="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-md p-2 text-xs font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-400"></textarea>
+              <label class="text-[11px] text-zinc-500 dark:text-zinc-400">Proxy URLs (ip:port, http://..., socks5://..., user:pass@host:port):</label>
+              <textarea id="input-new-proxies" rows="2" placeholder="1.179.172.45:31225&#10;socks5://45.74.31.40:17199" class="w-full bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-md p-2 text-xs font-mono text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-zinc-400"></textarea>
               <div class="flex justify-end gap-1.5">
                 <button id="btn-cancel-add-proxy" class="px-2.5 py-1 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-white">Cancel</button>
                 <button id="btn-save-new-proxies" class="px-3 py-1 bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 rounded-md text-xs font-semibold">Add Proxies</button>
@@ -245,7 +289,7 @@
 
             <!-- Proxies List -->
             <div id="proxies-list-container" class="space-y-2 max-h-[300px] overflow-y-auto pr-1">
-              <div class="text-xs text-zinc-400 text-center py-6">No proxies in pool. Click "Add" to configure HTTP/SOCKS proxies.</div>
+              <div class="text-xs text-zinc-400 text-center py-6">No proxies in pool. Click "Auto-Fetch" or "Add" to configure.</div>
             </div>
           </div>
 

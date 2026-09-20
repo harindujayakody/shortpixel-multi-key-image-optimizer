@@ -69,6 +69,14 @@ const boxAddProxy = document.getElementById('box-add-proxy');
 const inputNewProxies = document.getElementById('input-new-proxies');
 const settingUseProxy = document.getElementById('setting-use-proxy');
 
+const btnToggleFetchRemote = document.getElementById('btn-toggle-fetch-remote');
+const btnCancelFetchRemote = document.getElementById('btn-cancel-fetch-remote');
+const btnSubmitFetchRemote = document.getElementById('btn-submit-fetch-remote');
+const boxFetchRemote = document.getElementById('box-fetch-remote');
+const fetchRemoteProtocol = document.getElementById('fetch-remote-protocol');
+const fetchRemoteLatency = document.getElementById('fetch-remote-latency');
+const fetchRemoteLimit = document.getElementById('fetch-remote-limit');
+
 const btnPickFiles = document.getElementById('btn-pick-files');
 const btnPickFolder = document.getElementById('btn-pick-folder');
 const fileUpload = document.getElementById('file-upload');
@@ -731,6 +739,53 @@ function setupEventListeners() {
     await fetch('/api/proxies/test', { method: 'POST' });
     await fetchProxies();
   });
+
+  if (btnToggleFetchRemote) {
+    btnToggleFetchRemote.addEventListener('click', () => {
+      boxFetchRemote.classList.toggle('hidden');
+      if (boxAddProxy) boxAddProxy.classList.add('hidden');
+    });
+  }
+
+  if (btnCancelFetchRemote) {
+    btnCancelFetchRemote.addEventListener('click', () => {
+      boxFetchRemote.classList.add('hidden');
+    });
+  }
+
+  if (btnSubmitFetchRemote) {
+    btnSubmitFetchRemote.addEventListener('click', async () => {
+      const protocol = fetchRemoteProtocol ? fetchRemoteProtocol.value : 'all';
+      const maxLatency = fetchRemoteLatency ? parseInt(fetchRemoteLatency.value, 10) : 1200;
+      const limit = fetchRemoteLimit ? parseInt(fetchRemoteLimit.value, 10) : 25;
+
+      btnSubmitFetchRemote.disabled = true;
+      btnSubmitFetchRemote.innerHTML = '<i data-lucide="loader-2" class="w-3 h-3 animate-spin"></i> Fetching...';
+      refreshIcons();
+
+      try {
+        const res = await fetch('/api/proxies/fetch-remote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ protocol, maxLatency, limit })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data.success) {
+          showToast(`Imported ${data.count} fast proxies (from ${data.totalFetched} feed)!`, 'success');
+          boxFetchRemote.classList.add('hidden');
+          await fetchProxies();
+        } else {
+          showToast(`Fetch failed: ${data.error || 'Unknown error'}`, 'error');
+        }
+      } catch (err) {
+        showToast(`Fetch error: ${err.message}`, 'error');
+      } finally {
+        btnSubmitFetchRemote.disabled = false;
+        btnSubmitFetchRemote.innerHTML = '<i data-lucide="download-cloud" class="w-3 h-3"></i> Fetch & Import';
+        refreshIcons();
+      }
+    });
+  }
 
   settingUseProxy.addEventListener('change', async () => {
     await fetch('/api/settings', {

@@ -172,6 +172,21 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
     res.json({ success: true, proxies: stateStore.getProxies() });
   });
 
+  router.post('/proxies/fetch-remote', async (req, res) => {
+    try {
+      const { limit = 25, maxLatency = 1500, minUptime = 70, protocol = 'all' } = req.body;
+      const result = await proxyManager.fetchAndImportFromRola({
+        limit: parseInt(limit, 10),
+        maxLatency: parseInt(maxLatency, 10),
+        minUptime: parseInt(minUptime, 10),
+        protocol
+      });
+      res.json(result);
+    } catch (err) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   router.post('/proxies/test', async (req, res) => {
     try {
       const { id } = req.body;

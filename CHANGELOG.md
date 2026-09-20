@@ -19,7 +19,8 @@ All notable changes to the **ShortPixel Multi-Key Image Optimizer & Dashboard** 
 - **Real-Time Live Quota Gauges**: Live aggregate meter displaying Total Quota, Remaining Quota, and Used Quota across all keys.
 
 ### 🌐 Proxy Pool Infrastructure
-- **Proxy Pool Support**: Added management for HTTP, HTTPS, and SOCKS5 proxy pools via UI and `proxies.txt`.
+- **Proxy Pool Support**: Added management for HTTP, HTTPS, SOCKS4, and SOCKS5 proxy pools via UI and `proxies.txt`.
+- **Rola-IP Auto-Fetch & Filtering**: Integrated automated fetching of live public proxies directly from the Rola-IP API feed (`https://rola-ip.co/proxy-api/api/v1/proxies`), with protocol filtering (SOCKS5/HTTP/SOCKS4), latency threshold filtering (< 500ms, < 1200ms), and top-N sorting.
 - **Proxy Latency Benchmarking**: Test response time and health of all proxies with ShortPixel servers.
 - **Proxy Rotation**: Automatic proxy cycling across compression requests to prevent rate limits and IP geo restrictions.
 
