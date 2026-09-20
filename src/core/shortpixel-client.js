@@ -246,13 +246,27 @@ export class ShortPixelClient {
         return await this.pollPendingImage(resultItem.OriginalURL || fileName, apiKey, wait);
       }
 
-      // Format successful result
+      // Format successful result: ShortPixel returns LossySize, LosslessSize
       const originalSize = parseInt(resultItem.OriginalSize ?? 0, 10);
-      const compressedSize = parseInt(resultItem.CompressedSize ?? originalSize, 10);
+      const rawCompressed = (lossy === 0)
+        ? (resultItem.LosslessSize ?? resultItem.LoselessSize ?? resultItem.LossySize)
+        : (resultItem.LossySize ?? resultItem.GlossySize ?? resultItem.LosslessSize ?? resultItem.LoselessSize);
+
+      let compressedSize = parseInt(rawCompressed, 10);
       const percentImprovement = parseFloat(
         resultItem.PercentImprovement ??
-          (originalSize > 0 ? (((originalSize - compressedSize) / originalSize) * 100).toFixed(2) : 0)
+          (originalSize > 0 && !isNaN(compressedSize) ? (((originalSize - compressedSize) / originalSize) * 100).toFixed(2) : 0)
       );
+
+      if (isNaN(compressedSize) || compressedSize <= 0) {
+        if (percentImprovement > 0 && originalSize > 0) {
+          compressedSize = Math.round(originalSize * (1 - (percentImprovement / 100)));
+        } else {
+          compressedSize = originalSize;
+        }
+      }
+
+      const savedBytes = Math.max(0, originalSize - compressedSize);
 
       return {
         success: true,
@@ -260,12 +274,12 @@ export class ShortPixelClient {
         message: message || 'Optimized successfully',
         originalUrl: resultItem.OriginalURL,
         lossyUrl: resultItem.LossyURL,
-        webPUrl: resultItem.WebPURL,
-        avifUrl: resultItem.AVIFURL,
+        webPUrl: resultItem.WebPURL !== 'NA' ? resultItem.WebPURL : null,
+        avifUrl: resultItem.AVIFURL !== 'NA' ? resultItem.AVIFURL : null,
         originalSize,
         compressedSize,
         percentImprovement: Math.max(0, percentImprovement),
-        savedBytes: Math.max(0, originalSize - compressedSize),
+        savedBytes,
         keyUsed: apiKey,
         raw: resultItem
       };
@@ -312,11 +326,22 @@ export class ShortPixelClient {
         const statusCode = item.Status?.Code ?? item.Status ?? 0;
         if (statusCode === 2 || statusCode === 0) {
           const originalSize = parseInt(item.OriginalSize ?? 0, 10);
-          const compressedSize = parseInt(item.CompressedSize ?? originalSize, 10);
+          const rawCompressed = item.LossySize ?? item.GlossySize ?? item.LosslessSize ?? item.LoselessSize;
+          let compressedSize = parseInt(rawCompressed, 10);
           const percentImprovement = parseFloat(
             item.PercentImprovement ??
-              (originalSize > 0 ? (((originalSize - compressedSize) / originalSize) * 100).toFixed(2) : 0)
+              (originalSize > 0 && !isNaN(compressedSize) ? (((originalSize - compressedSize) / originalSize) * 100).toFixed(2) : 0)
           );
+
+          if (isNaN(compressedSize) || compressedSize <= 0) {
+            if (percentImprovement > 0 && originalSize > 0) {
+              compressedSize = Math.round(originalSize * (1 - (percentImprovement / 100)));
+            } else {
+              compressedSize = originalSize;
+            }
+          }
+
+          const savedBytes = Math.max(0, originalSize - compressedSize);
 
           return {
             success: true,
@@ -324,12 +349,12 @@ export class ShortPixelClient {
             message: item.Status?.Message || 'Optimized successfully',
             originalUrl: item.OriginalURL,
             lossyUrl: item.LossyURL,
-            webPUrl: item.WebPURL,
-            avifUrl: item.AVIFURL,
+            webPUrl: item.WebPURL !== 'NA' ? item.WebPURL : null,
+            avifUrl: item.AVIFURL !== 'NA' ? item.AVIFURL : null,
             originalSize,
             compressedSize,
             percentImprovement: Math.max(0, percentImprovement),
-            savedBytes: Math.max(0, originalSize - compressedSize),
+            savedBytes,
             keyUsed: apiKey,
             raw: item
           };
