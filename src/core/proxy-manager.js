@@ -62,8 +62,38 @@ export class ProxyManager extends EventEmitter {
     return this.stateStore.getProxies();
   }
 
+  /**
+   * Normalize any proxy format:
+   * - ip:port -> http://ip:port
+   * - ip:port:user:pass -> http://user:pass@ip:port
+   * - user:pass@ip:port -> http://user:pass@ip:port
+   * - socks5://ip:port
+   */
+  normalizeProxy(rawInput) {
+    if (!rawInput || typeof rawInput !== 'string') return null;
+    let str = rawInput.trim();
+    if (!str) return null;
+
+    let scheme = 'http';
+    if (str.includes('://')) {
+      const parts = str.split('://');
+      scheme = parts[0];
+      str = parts[1];
+    }
+
+    // Check if format is ip:port:user:pass
+    const colonSegments = str.split(':');
+    if (colonSegments.length === 4) {
+      const [host, port, user, pass] = colonSegments;
+      return `${scheme}://${encodeURIComponent(user)}:${encodeURIComponent(pass)}@${host}:${port}`;
+    }
+
+    // Standard host:port or user:pass@host:port
+    return `${scheme}://${str}`;
+  }
+
   addProxy(proxyUrl, verify = true) {
-    const cleanUrl = proxyUrl.trim();
+    const cleanUrl = this.normalizeProxy(proxyUrl);
     if (!cleanUrl) return null;
 
     const existing = this.getProxies().find(p => p.url === cleanUrl);
