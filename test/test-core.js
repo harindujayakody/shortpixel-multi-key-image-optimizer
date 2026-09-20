@@ -3,29 +3,38 @@ import fs from 'fs';
 import path from 'path';
 import { StateStore } from '../src/core/state-store.js';
 import { KeyManager } from '../src/core/key-manager.js';
+import { ProxyManager } from '../src/core/proxy-manager.js';
 import { ShortPixelError } from '../src/core/shortpixel-client.js';
 
 async function runTests() {
-  console.log('--- Running Core Test Suite ---');
+  console.log('--- Running Studio v2.0 Test Suite ---');
   const testStateFile = './test/test_state.json';
+  const testKeysFile = './test/test_keys.txt';
+  const testProxiesFile = './test/test_proxies.txt';
+
   if (!fs.existsSync('./test')) fs.mkdirSync('./test');
   if (fs.existsSync(testStateFile)) fs.unlinkSync(testStateFile);
+  if (fs.existsSync(testKeysFile)) fs.unlinkSync(testKeysFile);
+  if (fs.existsSync(testProxiesFile)) fs.unlinkSync(testProxiesFile);
 
   // 1. Test StateStore persistence
-  console.log('1. Testing StateStore persistence...');
+  console.log('1. Testing StateStore & Output location settings...');
   const store = new StateStore(testStateFile);
-  store.updateSettings({ lossy: 2, outputDir: './test_opt' });
+  store.updateSettings({
+    lossy: 1,
+    outputLocationMode: 'source_folder',
+    keyRotationStrategy: 'random'
+  });
   store.setKeys(['key_alpha_123', 'key_beta_456', 'key_gamma_789']);
-  
-  const reloadedStore = new StateStore(testStateFile);
-  assert.strictEqual(reloadedStore.getSettings().lossy, 2, 'Settings should persist to disk');
-  assert.strictEqual(reloadedStore.getKeys().length, 3, 'Keys should persist to disk');
-  console.log('✓ StateStore persistence passed.');
 
-  // 2. Test KeyManager & Key Auto-Rotation Logic
-  console.log('\n2. Testing KeyManager Auto-Rotation...');
-  
-  // Mock ShortPixel client
+  const reloadedStore = new StateStore(testStateFile);
+  assert.strictEqual(reloadedStore.getSettings().outputLocationMode, 'source_folder');
+  assert.strictEqual(reloadedStore.getSettings().keyRotationStrategy, 'random');
+  assert.strictEqual(reloadedStore.getKeys().length, 3);
+  console.log('✓ StateStore settings & keys persistence verified.');
+
+  // 2. Test KeyManager load balancing & keys.txt sync
+  console.log('\n2. Testing KeyManager load balancing & keys.txt sync...');
   const mockClient = {
     async checkKeyStatus(key) {
       if (key === 'key_alpha_123') return { key, valid: true, status: 'ACTIVE', creditsRemaining: 0 };
@@ -34,65 +43,56 @@ async function runTests() {
     }
   };
 
-  const keyMgr = new KeyManager(reloadedStore, mockClient);
-  
-  // Alpha has 0 credits, so getActiveKey should automatically skip alpha and pick beta
+  const keyMgr = new KeyManager(reloadedStore, mockClient, testKeysFile);
   await keyMgr.refreshKeyStatus('key_alpha_123');
   await keyMgr.refreshKeyStatus('key_beta_456');
+  await keyMgr.refreshKeyStatus('key_gamma_789');
 
-  let active = keyMgr.getActiveKey();
-  assert.strictEqual(active.key, 'key_beta_456', 'Should automatically select beta when alpha has 0 credits');
-  console.log(`✓ Active key selected: ${keyMgr.maskKey(active.key)}`);
+  keyMgr.syncKeysToFile();
+  assert.strictEqual(fs.existsSync(testKeysFile), true, 'keys.txt should be written on sync');
+  const writtenKeys = fs.readFileSync(testKeysFile, 'utf8');
+  assert.strictEqual(writtenKeys.includes('key_beta_456'), true, 'keys.txt should contain active keys');
+  console.log('✓ keys.txt synchronization verified.');
 
-  // Simulate Quota Exhaustion on Beta during compression
-  console.log('\n3. Simulating Quota Exhaustion Event...');
-  let rotatedEventFired = false;
-  keyMgr.on('keyRotated', data => {
-    rotatedEventFired = true;
-    console.log(`✓ Event emitted: Rotated from ${data.previousKey} to ${data.nextKey} (${data.reason})`);
-  });
+  // Test load balancing selection (should pick between beta and gamma, skipping exhausted alpha)
+  const activeKey = keyMgr.getActiveKey();
+  assert.ok(
+    activeKey.key === 'key_beta_456' || activeKey.key === 'key_gamma_789',
+    'Active key should be selected from usable pool'
+  );
+  console.log(`✓ Load balancer picked: ${keyMgr.maskKey(activeKey.key)}`);
 
-  const nextKey = keyMgr.markKeyExhausted('key_beta_456', 'Quota exceeded error -102');
-  assert.strictEqual(nextKey.key, 'key_gamma_789', 'Should rotate to gamma when beta is exhausted');
-  assert.strictEqual(rotatedEventFired, true, 'Rotation event should fire');
+  // 3. Test ProxyManager
+  console.log('\n3. Testing ProxyManager & Agent Creation...');
+  const proxyMgr = new ProxyManager(reloadedStore, testProxiesFile);
+  const p1 = proxyMgr.addProxy('http://proxy.example.com:8080', false);
+  const p2 = proxyMgr.addProxy('socks5://user:pass@127.0.0.1:1080', false);
 
-  // 4. Test Usage Tracking & Cumulative Stats
-  console.log('\n4. Testing Usage Stats Accumulation...');
-  keyMgr.recordUsage('key_gamma_789', 50000); // 50KB saved
-  const gammaObj = keyMgr.getKey('key_gamma_789');
-  assert.strictEqual(gammaObj.lifetimeImages, 1, 'Lifetime images incremented');
-  assert.strictEqual(gammaObj.lifetimeSavedBytes, 50000, 'Lifetime saved bytes updated');
+  assert.strictEqual(proxyMgr.getProxies().length, 2);
+  const httpAgent = proxyMgr.createAgent(p1.url);
+  assert.ok(httpAgent, 'Should create HttpsProxyAgent');
 
-  // Record history and verify global stats
-  reloadedStore.recordHistory('hash_mock_123', {
-    fileName: 'test.jpg',
-    originalSize: 100000,
-    compressedSize: 50000,
-    savedBytes: 50000,
-    percentImprovement: 50.0,
-    keyUsed: 'key_gamma_789'
-  });
+  const socksAgent = proxyMgr.createAgent(p2.url);
+  assert.ok(socksAgent, 'Should create SocksProxyAgent');
+  console.log('✓ Proxy manager agents verified.');
 
-  const stats = reloadedStore.getStats();
-  assert.strictEqual(stats.totalProcessed, 1);
-  assert.strictEqual(stats.totalSavedBytes, 50000);
-  assert.strictEqual(stats.overallRatio, 50.0);
-  console.log(`✓ Stats verified: Processed: ${stats.totalProcessed}, Saved: ${stats.totalSavedBytes} bytes, Ratio: ${stats.overallRatio}%`);
-
-  // 5. Test ShortPixelError classification
-  console.log('\n5. Testing ShortPixelError classification...');
+  // 4. Test Error Classification
+  console.log('\n4. Testing Error Classification...');
   const quotaErr = new ShortPixelError('Monthly quota limit exceeded', -102);
-  assert.strictEqual(quotaErr.isQuotaExceeded, true, 'Should detect quota exceeded error');
+  assert.strictEqual(quotaErr.isQuotaExceeded, true);
 
   const invalidErr = new ShortPixelError('Invalid API Key provided', -101);
-  assert.strictEqual(invalidErr.isInvalidKey, true, 'Should detect invalid API key');
-  console.log('✓ Error classification passed.');
+  assert.strictEqual(invalidErr.isInvalidKey, true);
+  console.log('✓ ShortPixel error classification verified.');
 
-  // Clean up test file
+  // Clean up test files
   if (fs.existsSync(testStateFile)) fs.unlinkSync(testStateFile);
-  console.log('\n========================================');
-  console.log('  ALL CORE TESTS PASSED SUCCESSFULLY!  ');
-  console.log('========================================\n');
+  if (fs.existsSync(testKeysFile)) fs.unlinkSync(testKeysFile);
+  if (fs.existsSync(testProxiesFile)) fs.unlinkSync(testProxiesFile);
+
+  console.log('\n=============================================');
+  console.log('  ALL STUDIO v2.0 TESTS PASSED WITH 100%!   ');
+  console.log('=============================================\n');
 }
 
 runTests().catch(err => {

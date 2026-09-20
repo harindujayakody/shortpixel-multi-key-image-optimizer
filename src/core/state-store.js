@@ -6,6 +6,7 @@ export class StateStore {
     this.stateFilePath = path.resolve(stateFilePath);
     this.state = {
       keys: [], // [{ key, status, creditsRemaining, totalCredits, lifetimeImages, lifetimeSavedBytes, lastUsed, lastChecked, error }]
+      proxies: [], // [{ id, url, protocol, status, latency, lastChecked, error }]
       activeKeyIndex: 0,
       settings: {
         lossy: 1, // 1: Lossy, 2: Glossy, 0: Lossless
@@ -15,10 +16,14 @@ export class StateStore {
         resize: { enabled: false, width: 1920, height: 1080, type: 'outer' },
         concurrency: 2,
         backupOriginal: true,
+        outputLocationMode: 'source_folder', // 'source_folder' (source_dir/optimized), 'custom', 'app_root'
         outputDir: './optimized',
-        replaceOriginal: false
+        replaceOriginal: false,
+        keyRotationStrategy: 'random', // 'random', 'round-robin', 'sequential'
+        useProxy: false,
+        proxyStrategy: 'round-robin' // 'round-robin', 'random'
       },
-      queue: [], // [{ id, fileName, fullPath, relativePath, hash, size, status, originalSize, compressedSize, savedBytes, percentImprovement, keyUsed, error, startedAt, completedAt }]
+      queue: [], // [{ id, fileName, fullPath, relativePath, sourceDir, hash, size, mimeType, width, height, previewUrl, status, originalSize, compressedSize, savedBytes, percentImprovement, keyUsed, proxyUsed, outputPath, error, startedAt, completedAt, durationMs }]
       history: {}, // hash -> { fileName, originalSize, compressedSize, savedBytes, percentImprovement, keyUsed, completedAt, outputPath }
       stats: {
         totalProcessed: 0,
@@ -36,9 +41,6 @@ export class StateStore {
     this.load();
   }
 
-  /**
-   * Load state from disk if exists
-   */
   load() {
     try {
       if (fs.existsSync(this.stateFilePath)) {
@@ -49,11 +51,10 @@ export class StateStore {
           ...parsed,
           settings: { ...this.state.settings, ...(parsed.settings || {}) },
           stats: { ...this.state.stats, ...(parsed.stats || {}) },
-          history: { ...this.state.history, ...(parsed.history || {}) }
+          history: { ...this.state.history, ...(parsed.history || {}) },
+          proxies: parsed.proxies || []
         };
-        // Reset volatile running states on boot
         this.state.isRunning = false;
-        // Fix any items stuck in 'PROCESSING' to 'PENDING'
         if (Array.isArray(this.state.queue)) {
           this.state.queue.forEach(item => {
             if (item.status === 'PROCESSING') {
@@ -67,9 +68,6 @@ export class StateStore {
     }
   }
 
-  /**
-   * Atomically save state to disk
-   */
   save() {
     try {
       this.state.lastUpdated = new Date().toISOString();
@@ -83,13 +81,11 @@ export class StateStore {
   }
 
   // ---- Key State Methods ----
-
   getKeys() {
     return this.state.keys;
   }
 
   setKeys(keysList) {
-    // Merge existing key metrics with new key list
     const existingMap = new Map(this.state.keys.map(k => [k.key, k]));
     
     this.state.keys = keysList.map(keyStr => {
@@ -99,7 +95,7 @@ export class StateStore {
       }
       return {
         key: cleanKey,
-        status: 'READY', // 'READY', 'ACTIVE', 'EXHAUSTED', 'INVALID'
+        status: 'READY',
         creditsRemaining: null,
         totalCredits: null,
         lifetimeImages: 0,
@@ -151,8 +147,40 @@ export class StateStore {
     }
   }
 
-  // ---- Queue Methods ----
+  // ---- Proxy State Methods ----
+  getProxies() {
+    return this.state.proxies || [];
+  }
 
+  setProxies(proxies) {
+    this.state.proxies = proxies;
+    this.save();
+    return this.state.proxies;
+  }
+
+  addProxy(proxyObj) {
+    if (!this.state.proxies) this.state.proxies = [];
+    this.state.proxies.push(proxyObj);
+    this.save();
+    return proxyObj;
+  }
+
+  removeProxy(proxyId) {
+    if (!this.state.proxies) return;
+    this.state.proxies = this.state.proxies.filter(p => p.id !== proxyId);
+    this.save();
+  }
+
+  updateProxy(proxyId, updates) {
+    if (!this.state.proxies) return;
+    const proxy = this.state.proxies.find(p => p.id === proxyId);
+    if (proxy) {
+      Object.assign(proxy, updates);
+      this.save();
+    }
+  }
+
+  // ---- Queue Methods ----
   getQueue() {
     return this.state.queue;
   }
@@ -168,18 +196,25 @@ export class StateStore {
           fileName: item.name || path.basename(item.fullPath),
           fullPath: item.fullPath,
           relativePath: item.relativePath || item.name,
+          sourceDir: item.sourceDir || path.dirname(item.fullPath),
           hash: item.hash || null,
           size: item.size || 0,
-          status: item.status || 'PENDING', // PENDING, PROCESSING, COMPLETED, FAILED, SKIPPED, PAUSED
+          mimeType: item.mimeType || null,
+          width: item.width || null,
+          height: item.height || null,
+          previewUrl: item.previewUrl || null,
+          status: item.status || 'PENDING',
           originalSize: item.size || 0,
           compressedSize: null,
           savedBytes: null,
           percentImprovement: null,
           keyUsed: null,
+          proxyUsed: null,
           outputPath: null,
           error: null,
           startedAt: null,
-          completedAt: null
+          completedAt: null,
+          durationMs: null
         };
         this.state.queue.push(queueItem);
         existingPaths.add(item.fullPath);
@@ -209,8 +244,7 @@ export class StateStore {
     this.save();
   }
 
-  // ---- History & Optimization Record ----
-
+  // ---- History & Stats ----
   recordHistory(hash, record) {
     if (hash) {
       this.state.history[hash] = {
@@ -219,7 +253,6 @@ export class StateStore {
       };
     }
 
-    // Update global stats
     if (record.savedBytes !== undefined) {
       this.state.stats.totalProcessed += 1;
       this.state.stats.totalOriginalBytes += record.originalSize || 0;
@@ -243,8 +276,6 @@ export class StateStore {
     return this.state.history[hash] || null;
   }
 
-  // ---- Settings & State ----
-
   getSettings() {
     return this.state.settings;
   }
@@ -263,8 +294,30 @@ export class StateStore {
   }
 
   getStats() {
+    const keys = this.state.keys || [];
+    let totalQuota = 0;
+    let totalRemainingQuota = 0;
+    let totalLifetimeOptimized = 0;
+
+    keys.forEach(k => {
+      totalQuota += (k.totalCredits || (k.creditsRemaining || 0));
+      totalRemainingQuota += (k.creditsRemaining || 0);
+      totalLifetimeOptimized += (k.lifetimeImages || 0);
+    });
+
+    const activeKeysCount = keys.filter(k => k.status === 'ACTIVE' || (k.status === 'READY' && (k.creditsRemaining > 0 || k.creditsRemaining === null))).length;
+    const exhaustedKeysCount = keys.filter(k => k.status === 'EXHAUSTED').length;
+
     return {
       ...this.state.stats,
+      totalQuota,
+      totalRemainingQuota,
+      totalUsedQuota: Math.max(0, totalQuota - totalRemainingQuota),
+      activeKeysCount,
+      exhaustedKeysCount,
+      totalKeysCount: keys.length,
+      proxiesCount: (this.state.proxies || []).length,
+      activeProxiesCount: (this.state.proxies || []).filter(p => p.status === 'ACTIVE' || p.status === 'READY').length,
       queueCount: this.state.queue.length,
       pendingCount: this.state.queue.filter(i => i.status === 'PENDING').length,
       processingCount: this.state.queue.filter(i => i.status === 'PROCESSING').length,

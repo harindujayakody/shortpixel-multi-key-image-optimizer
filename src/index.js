@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import { StateStore } from './core/state-store.js';
 import { KeyManager } from './core/key-manager.js';
+import { ProxyManager } from './core/proxy-manager.js';
 import { OptimizerQueue } from './core/optimizer-queue.js';
 import { ShortPixelClient } from './core/shortpixel-client.js';
 import { createApiRouter } from './api/routes.js';
@@ -16,12 +17,14 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const STATE_FILE = process.env.STATE_FILE || './shortpixel_state.json';
 const KEYS_FILE = './keys.txt';
+const PROXIES_FILE = './proxies.txt';
 
 // Initialize core components
 const stateStore = new StateStore(STATE_FILE);
 const client = new ShortPixelClient();
-const keyManager = new KeyManager(stateStore, client);
-const queue = new OptimizerQueue(stateStore, keyManager, client);
+const keyManager = new KeyManager(stateStore, client, KEYS_FILE);
+const proxyManager = new ProxyManager(stateStore, PROXIES_FILE);
+const queue = new OptimizerQueue(stateStore, keyManager, proxyManager, client);
 
 // Auto-load keys from keys.txt if present
 if (fs.existsSync(KEYS_FILE)) {
@@ -30,6 +33,12 @@ if (fs.existsSync(KEYS_FILE)) {
   keyManager.refreshAllKeys().catch(err => {
     console.error(`[Startup] Failed to refresh keys: ${err.message}`);
   });
+}
+
+// Auto-load proxies from proxies.txt if present
+if (fs.existsSync(PROXIES_FILE)) {
+  console.log(chalk.cyan(`[Startup] Loading proxies from ${PROXIES_FILE}...`));
+  proxyManager.loadProxiesFromFile(PROXIES_FILE);
 }
 
 // Log rotation events to console
@@ -54,7 +63,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Mount API router
-app.use('/api', createApiRouter(stateStore, keyManager, queue));
+app.use('/api', createApiRouter(stateStore, keyManager, proxyManager, queue));
 
 // Fallback to index.html for SPA
 app.get('*', (req, res) => {

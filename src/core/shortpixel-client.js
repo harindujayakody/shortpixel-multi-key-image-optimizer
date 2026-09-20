@@ -164,7 +164,8 @@ export class ShortPixelClient {
       keepExif = 1,
       convertTo = null, // 'webp', 'avif', '+webp', '+avif'
       resize = null, // { width, height, type: 'inner' | 'outer' }
-      wait = 30
+      wait = 30,
+      proxyAgent = null
     } = options;
 
     if (!fs.existsSync(filePath)) {
@@ -195,7 +196,7 @@ export class ShortPixelClient {
     form.append('file1', fs.createReadStream(filePath));
 
     try {
-      const response = await axios.post(SHORTPIXEL_ENDPOINTS.POST_REDUCER, form, {
+      const axiosConfig = {
         headers: {
           ...form.getHeaders()
         },
@@ -203,7 +204,14 @@ export class ShortPixelClient {
         maxContentLength: Infinity,
         maxBodyLength: Infinity,
         validateStatus: () => true
-      });
+      };
+
+      if (proxyAgent) {
+        axiosConfig.httpsAgent = proxyAgent;
+        axiosConfig.httpAgent = proxyAgent;
+      }
+
+      const response = await axios.post(SHORTPIXEL_ENDPOINTS.POST_REDUCER, form, axiosConfig);
 
       let data = response.data;
       if (typeof data === 'string') {
@@ -339,18 +347,25 @@ export class ShortPixelClient {
   /**
    * Download optimized image binary from ShortPixel URL and save to destination path
    */
-  async downloadOptimizedImage(downloadUrl, targetPath) {
+  async downloadOptimizedImage(downloadUrl, targetPath, proxyAgent = null) {
     const dir = path.dirname(targetPath);
     if (!fs.existsSync(dir)) {
       await fs.promises.mkdir(dir, { recursive: true });
     }
 
-    const response = await axios({
+    const axiosConfig = {
       method: 'GET',
       url: downloadUrl,
       responseType: 'stream',
       timeout: 30000
-    });
+    };
+
+    if (proxyAgent) {
+      axiosConfig.httpsAgent = proxyAgent;
+      axiosConfig.httpAgent = proxyAgent;
+    }
+
+    const response = await axios(axiosConfig);
 
     const writer = fs.createWriteStream(targetPath);
     response.data.pipe(writer);

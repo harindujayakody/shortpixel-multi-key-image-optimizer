@@ -3,28 +3,47 @@ import EventEmitter from 'events';
 import { ShortPixelClient } from './shortpixel-client.js';
 
 export class KeyManager extends EventEmitter {
-  constructor(stateStore, client = null) {
+  constructor(stateStore, client = null, keysFilePath = './keys.txt') {
     super();
     this.stateStore = stateStore;
     this.client = client || new ShortPixelClient();
+    this.keysFilePath = keysFilePath;
     this.currentKeyIndex = 0;
   }
 
   /**
-   * Load keys from a text file (one key per line)
+   * Load keys from keys.txt
    */
-  loadKeysFromFile(filePath) {
+  loadKeysFromFile(filePath = this.keysFilePath) {
     if (!fs.existsSync(filePath)) {
       return [];
     }
 
-    const content = fs.readFileSync(filePath, 'utf8');
-    const lines = content
-      .split(/\r?\n/)
-      .map(line => line.trim())
-      .filter(line => line.length > 0 && !line.startsWith('#'));
+    try {
+      const content = fs.readFileSync(filePath, 'utf8');
+      const lines = content
+        .split(/\r?\n/)
+        .map(line => line.trim())
+        .filter(line => line.length > 0 && !line.startsWith('#'));
 
-    return this.stateStore.setKeys(lines);
+      return this.stateStore.setKeys(lines);
+    } catch (err) {
+      console.error(`[KeyManager] Error loading keys from file: ${err.message}`);
+      return [];
+    }
+  }
+
+  /**
+   * Save and synchronize all active keys to keys.txt
+   */
+  syncKeysToFile(filePath = this.keysFilePath) {
+    try {
+      const keys = this.getKeys();
+      const content = keys.map(k => k.key).join('\n') + '\n';
+      fs.writeFileSync(filePath, content, 'utf8');
+    } catch (err) {
+      console.error(`[KeyManager] Error syncing keys to file: ${err.message}`);
+    }
   }
 
   /**
@@ -35,11 +54,13 @@ export class KeyManager extends EventEmitter {
   }
 
   /**
-   * Add a single API key to the pool
+   * Add a single API key to the pool and sync to keys.txt
    */
   async addKey(apiKey, verify = true) {
     const keyObj = this.stateStore.addKey(apiKey);
     if (!keyObj) return null;
+
+    this.syncKeysToFile();
 
     if (verify) {
       await this.refreshKeyStatus(apiKey);
@@ -50,10 +71,11 @@ export class KeyManager extends EventEmitter {
   }
 
   /**
-   * Remove a key from pool
+   * Remove a key from pool and sync to keys.txt
    */
   removeKey(apiKey) {
     this.stateStore.removeKey(apiKey);
+    this.syncKeysToFile();
     this.emit('keysUpdated', this.getKeys());
   }
 
@@ -96,30 +118,31 @@ export class KeyManager extends EventEmitter {
   }
 
   /**
-   * Get the current active key or automatically find the next available healthy key
+   * Get an active key according to the configured load balancing strategy:
+   * 'random' (default) - picks randomly from all available keys to distribute load
+   * 'round-robin' - rotates sequentially among all usable keys
+   * 'sequential' - uses key 1 until exhausted, then key 2
    */
   getActiveKey() {
     const keys = this.getKeys();
-    if (!keys || keys.length === 0) {
-      return null;
+    if (!keys || keys.length === 0) return null;
+
+    const usableKeys = keys.filter(k => this.isKeyUsable(k));
+    if (usableKeys.length === 0) return null;
+
+    const settings = this.stateStore.getSettings();
+    const strategy = settings.keyRotationStrategy || 'random';
+
+    if (strategy === 'random') {
+      const randomIdx = Math.floor(Math.random() * usableKeys.length);
+      return usableKeys[randomIdx];
+    } else if (strategy === 'round-robin') {
+      this.currentKeyIndex = (this.currentKeyIndex + 1) % usableKeys.length;
+      return usableKeys[this.currentKeyIndex];
     }
 
-    // Try current index first
-    const current = keys[this.currentKeyIndex];
-    if (current && this.isKeyUsable(current)) {
-      return current;
-    }
-
-    // Find next usable key starting from index 0
-    for (let i = 0; i < keys.length; i++) {
-      const candidate = keys[i];
-      if (this.isKeyUsable(candidate)) {
-        this.currentKeyIndex = i;
-        return candidate;
-      }
-    }
-
-    return null;
+    // Default to first usable (sequential)
+    return usableKeys[0];
   }
 
   /**
@@ -130,7 +153,6 @@ export class KeyManager extends EventEmitter {
     if (keyObj.status === 'INVALID' || keyObj.status === 'EXHAUSTED') {
       return false;
     }
-    // If credits are known and 0, mark exhausted
     if (keyObj.creditsRemaining !== null && keyObj.creditsRemaining <= 0) {
       return false;
     }
@@ -154,8 +176,7 @@ export class KeyManager extends EventEmitter {
     });
 
     const previousKey = apiKey;
-    // Rotate to next key
-    const nextKey = this.rotateToNextKey();
+    const nextKey = this.getActiveKey();
 
     this.emit('keyRotated', {
       previousKey: this.maskKey(previousKey),
@@ -179,7 +200,7 @@ export class KeyManager extends EventEmitter {
       lastChecked: new Date().toISOString()
     });
 
-    const nextKey = this.rotateToNextKey();
+    const nextKey = this.getActiveKey();
     this.emit('keyRotated', {
       previousKey: this.maskKey(apiKey),
       nextKey: nextKey ? this.maskKey(nextKey.key) : null,
@@ -187,28 +208,6 @@ export class KeyManager extends EventEmitter {
     });
     this.emit('keysUpdated', this.getKeys());
     return nextKey;
-  }
-
-  /**
-   * Explicitly rotate pointer to next usable key
-   */
-  rotateToNextKey() {
-    const keys = this.getKeys();
-    if (keys.length === 0) return null;
-
-    for (let step = 1; step <= keys.length; step++) {
-      const nextIdx = (this.currentKeyIndex + step) % keys.length;
-      const candidate = keys[nextIdx];
-      if (this.isKeyUsable(candidate)) {
-        this.currentKeyIndex = nextIdx;
-        console.log(`[KeyManager] Rotated to key: ${this.maskKey(candidate.key)} (Index ${nextIdx + 1}/${keys.length})`);
-        return candidate;
-      }
-    }
-
-    console.warn('[KeyManager] ALL KEYS EXHAUSTED! No usable keys remaining in the pool.');
-    this.emit('allKeysExhausted');
-    return null;
   }
 
   /**

@@ -5,10 +5,11 @@ import { ShortPixelClient, ShortPixelError } from './shortpixel-client.js';
 import { getFileHash, ensureDir, formatBytes } from './file-utils.js';
 
 export class OptimizerQueue extends EventEmitter {
-  constructor(stateStore, keyManager, client = null) {
+  constructor(stateStore, keyManager, proxyManager = null, client = null) {
     super();
     this.stateStore = stateStore;
     this.keyManager = keyManager;
+    this.proxyManager = proxyManager;
     this.client = client || new ShortPixelClient();
 
     this.isProcessing = false;
@@ -91,23 +92,18 @@ export class OptimizerQueue extends EventEmitter {
 
     while (this.isProcessing && !this.shouldStop) {
       if (this.stateStore.state.isPaused) {
-        // Paused, wait briefly
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
 
-      // Check if we have active workers capacity
       if (this.activeWorkers >= concurrency) {
         await new Promise(r => setTimeout(r, 200));
         continue;
       }
 
-      // Find next pending item
       const pendingItem = this.stateStore.getQueue().find(i => i.status === 'PENDING');
       if (!pendingItem) {
-        // Check if any workers are still running
         if (this.activeWorkers === 0) {
-          // All done!
           this.isProcessing = false;
           this.stateStore.setRunning(false);
           this.emit('queueCompleted', { stats: this.stateStore.getStats() });
@@ -117,7 +113,6 @@ export class OptimizerQueue extends EventEmitter {
         continue;
       }
 
-      // Spawn worker for pendingItem
       this.activeWorkers++;
       this.processItem(pendingItem)
         .catch(err => {
@@ -135,13 +130,32 @@ export class OptimizerQueue extends EventEmitter {
   }
 
   /**
-   * Process a single image file with automatic key rotation on quota exhaustion
+   * Resolve target output path according to settings
+   */
+  resolveOutputPath(item, settings) {
+    if (settings.replaceOriginal) {
+      return item.fullPath;
+    }
+
+    // Default requirement: Uploaded Location /optimized
+    if (settings.outputLocationMode === 'source_folder' && item.sourceDir) {
+      const sourceOptimizedDir = path.join(item.sourceDir, 'optimized');
+      return path.join(sourceOptimizedDir, item.relativePath || item.fileName);
+    }
+
+    // Custom output folder
+    const customDir = path.resolve(settings.outputDir || './optimized');
+    return path.join(customDir, item.relativePath || item.fileName);
+  }
+
+  /**
+   * Process a single image file with multi-key rotation and optional proxy routing
    */
   async processItem(item, retryCount = 0) {
     const maxItemRetries = 3;
     const settings = this.stateStore.getSettings();
+    const startTime = Date.now();
 
-    // Mark item as PROCESSING
     this.stateStore.updateQueueItem(item.id, {
       status: 'PROCESSING',
       startedAt: new Date().toISOString(),
@@ -151,25 +165,17 @@ export class OptimizerQueue extends EventEmitter {
     this.emit('itemStarted', { item: this.stateStore.getQueue().find(i => i.id === item.id) });
 
     try {
-      // 1. Check file exists
       if (!fs.existsSync(item.fullPath)) {
         throw new Error(`Original file not found at ${item.fullPath}`);
       }
 
-      // 2. Hash file for deduplication check
       const hash = await getFileHash(item.fullPath);
       item.hash = hash;
 
-      // 3. Determine output path
-      const outDir = path.resolve(settings.outputDir || './optimized');
-      await ensureDir(outDir);
+      const targetOutputPath = this.resolveOutputPath(item, settings);
+      await ensureDir(path.dirname(targetOutputPath));
 
-      let targetOutputPath = path.join(outDir, item.relativePath || item.fileName);
-      if (settings.replaceOriginal) {
-        targetOutputPath = item.fullPath;
-      }
-
-      // If already processed with same hash and output exists, skip to save credits
+      // Skip already optimized files
       const existingRecord = this.stateStore.getHistoryByHash(hash);
       if (existingRecord && fs.existsSync(existingRecord.outputPath || targetOutputPath)) {
         this.stateStore.updateQueueItem(item.id, {
@@ -182,16 +188,16 @@ export class OptimizerQueue extends EventEmitter {
           keyUsed: existingRecord.keyUsed,
           outputPath: existingRecord.outputPath || targetOutputPath,
           completedAt: new Date().toISOString(),
+          durationMs: Date.now() - startTime,
           error: 'Skipped (Already optimized previously)'
         });
         this.emit('itemCompleted', { item: this.stateStore.getQueue().find(i => i.id === item.id) });
         return;
       }
 
-      // 4. Retrieve an active, usable API key
+      // Pick active key (distributed via random / round-robin)
       let activeKeyObj = this.keyManager.getActiveKey();
       if (!activeKeyObj) {
-        // No keys available in pool!
         this.stateStore.updateQueueItem(item.id, {
           status: 'PENDING',
           error: 'All API keys exhausted or no keys configured'
@@ -203,12 +209,23 @@ export class OptimizerQueue extends EventEmitter {
 
       const activeKey = activeKeyObj.key;
 
-      // 5. Send optimization request to ShortPixel
+      // Check proxy
+      let proxyAgent = null;
+      let proxyUsedStr = null;
+      if (this.proxyManager && settings.useProxy) {
+        const proxyObj = this.proxyManager.getNextProxy();
+        if (proxyObj) {
+          proxyAgent = this.proxyManager.createAgent(proxyObj.url);
+          proxyUsedStr = proxyObj.url.replace(/:[^:@]+@/, ':***@'); // mask credentials
+        }
+      }
+
       const optOptions = {
         lossy: settings.lossy ?? 1,
         keepExif: settings.keepExif ?? 1,
         convertTo: settings.convertToAVIF ? '+avif' : settings.convertToWebP ? '+webp' : null,
-        resize: settings.resize?.enabled ? settings.resize : null
+        resize: settings.resize?.enabled ? settings.resize : null,
+        proxyAgent
       };
 
       let result;
@@ -216,9 +233,9 @@ export class OptimizerQueue extends EventEmitter {
         result = await this.client.optimizeLocalFile(item.fullPath, activeKey, optOptions);
       } catch (apiErr) {
         if (apiErr instanceof ShortPixelError) {
-          // Case A: Quota Exceeded (-102) -> Rotate key & retry item!
+          // Quota Exceeded (-102) -> Rotate key & retry item seamlessly
           if (apiErr.isQuotaExceeded) {
-            console.warn(`[OptimizerQueue] Key ${this.keyManager.maskKey(activeKey)} quota exceeded! Rotating to next key...`);
+            console.warn(`[OptimizerQueue] Key ${this.keyManager.maskKey(activeKey)} quota exceeded! Rotating key...`);
             const nextKey = this.keyManager.markKeyExhausted(activeKey, 'Quota limit reached during optimization');
 
             if (nextKey) {
@@ -227,10 +244,8 @@ export class OptimizerQueue extends EventEmitter {
                 oldKey: this.keyManager.maskKey(activeKey),
                 newKey: this.keyManager.maskKey(nextKey.key)
               });
-              // Retry immediately with the new key
               return await this.processItem(item, retryCount);
             } else {
-              // No more keys in pool!
               this.stateStore.updateQueueItem(item.id, {
                 status: 'PENDING',
                 error: 'All API keys exhausted'
@@ -241,7 +256,7 @@ export class OptimizerQueue extends EventEmitter {
             }
           }
 
-          // Case B: Invalid API Key (-101) -> Mark invalid, rotate & retry
+          // Invalid Key (-101)
           if (apiErr.isInvalidKey) {
             console.error(`[OptimizerQueue] Key ${this.keyManager.maskKey(activeKey)} invalid! Rotating...`);
             const nextKey = this.keyManager.markKeyInvalid(activeKey, 'Invalid API Key');
@@ -258,9 +273,8 @@ export class OptimizerQueue extends EventEmitter {
           }
         }
 
-        // Other network/server errors -> retry up to maxItemRetries
         if (retryCount < maxItemRetries) {
-          console.warn(`[OptimizerQueue] Retrying ${item.fileName} (Attempt ${retryCount + 1}/${maxItemRetries}) due to: ${apiErr.message}`);
+          console.warn(`[OptimizerQueue] Retrying ${item.fileName} (${retryCount + 1}/${maxItemRetries}) due to: ${apiErr.message}`);
           await new Promise(r => setTimeout(r, 2000));
           return await this.processItem(item, retryCount + 1);
         }
@@ -268,10 +282,9 @@ export class OptimizerQueue extends EventEmitter {
         throw apiErr;
       }
 
-      // 6. Download optimized file to target directory
+      // Download optimized image
       const downloadUrl = result.lossyUrl || result.originalUrl;
       if (downloadUrl) {
-        // Backup original if replacing in-place
         if (settings.replaceOriginal && settings.backupOriginal) {
           const backupPath = `${item.fullPath}.bak`;
           if (!fs.existsSync(backupPath)) {
@@ -279,22 +292,21 @@ export class OptimizerQueue extends EventEmitter {
           }
         }
 
-        await this.client.downloadOptimizedImage(downloadUrl, targetOutputPath);
+        await this.client.downloadOptimizedImage(downloadUrl, targetOutputPath, proxyAgent);
 
-        // Download WebP / AVIF alongside if generated
         if (result.webPUrl) {
           const webpPath = targetOutputPath.replace(/\.[^.]+$/, '.webp');
-          await this.client.downloadOptimizedImage(result.webPUrl, webpPath);
+          await this.client.downloadOptimizedImage(result.webPUrl, webpPath, proxyAgent);
         }
         if (result.avifUrl) {
           const avifPath = targetOutputPath.replace(/\.[^.]+$/, '.avif');
-          await this.client.downloadOptimizedImage(result.avifUrl, avifPath);
+          await this.client.downloadOptimizedImage(result.avifUrl, avifPath, proxyAgent);
         }
       }
 
-      // 7. Record usage on key and save state
       this.keyManager.recordUsage(activeKey, result.savedBytes);
 
+      const durationMs = Date.now() - startTime;
       const completedRecord = {
         fileName: item.fileName,
         originalSize: result.originalSize || item.size,
@@ -302,7 +314,9 @@ export class OptimizerQueue extends EventEmitter {
         savedBytes: result.savedBytes || 0,
         percentImprovement: result.percentImprovement || 0,
         keyUsed: this.keyManager.maskKey(activeKey),
-        outputPath: targetOutputPath
+        proxyUsed: proxyUsedStr,
+        outputPath: targetOutputPath,
+        durationMs
       };
 
       this.stateStore.recordHistory(hash, completedRecord);
@@ -315,8 +329,10 @@ export class OptimizerQueue extends EventEmitter {
         savedBytes: completedRecord.savedBytes,
         percentImprovement: completedRecord.percentImprovement,
         keyUsed: this.keyManager.maskKey(activeKey),
+        proxyUsed: proxyUsedStr,
         outputPath: targetOutputPath,
         completedAt: new Date().toISOString(),
+        durationMs,
         error: null
       });
 
@@ -330,7 +346,8 @@ export class OptimizerQueue extends EventEmitter {
       this.stateStore.updateQueueItem(item.id, {
         status: 'FAILED',
         error: err.message,
-        completedAt: new Date().toISOString()
+        completedAt: new Date().toISOString(),
+        durationMs: Date.now() - startTime
       });
       this.stateStore.state.stats.totalFailed += 1;
       this.stateStore.save();

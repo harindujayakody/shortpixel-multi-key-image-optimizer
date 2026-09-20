@@ -1,45 +1,80 @@
-/* Custom animations and scrollbar styles */
+/* Pure Black Dark Theme & Shadcn Utilities */
+
+:root {
+  --radius: 0.5rem;
+}
+
+/* Custom Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.6);
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(51, 65, 85, 0.8);
+  background: #e4e4e7;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(71, 85, 105, 1);
+  background: #d4d4d8;
 }
 
-.card {
-  transition: transform 0.2s ease, border-color 0.2s ease;
-}
-
-.card:hover {
-  border-color: rgba(99, 102, 241, 0.3);
-}
-
+/* Dropzone dragover */
 .dropzone-active {
-  border-color: #6366f1 !important;
-  background-color: rgba(99, 102, 241, 0.08) !important;
+  border-color: #71717a !important;
+  background-color: rgba(39, 39, 42, 0.4) !important;
 }
 
+/* Tab buttons */
+.tab-btn.active {
+  background-color: #ffffff;
+  color: #09090b !important;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.dark .tab-btn.active {
+  background-color: #000000 !important;
+  color: #fafafa !important;
+  border: 1px solid #27272a;
+}
+
+/* Filter buttons */
 .filter-btn.active {
-  background-color: #4f46e5 !important;
+  background-color: #18181b;
   color: #ffffff !important;
 }
 
-@keyframes pulse-subtle {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.6; }
+.dark .filter-btn.active {
+  background-color: #ffffff !important;
+  color: #09090b !important;
+  font-weight: 600;
 }
 
-.animate-pulse-subtle {
-  animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+/* Toast animations */
+@keyframes toast-in {
+  from {
+    transform: translateY(1rem) scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-toast {
+  animation: toast-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
