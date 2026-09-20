@@ -1,0 +1,6 @@
+# ShortPixel API Keys Pool
+# Add one API key per line. Comments starting with # or empty lines are ignored.
+# Example keys:
+# abcdef1234567890
+# 9876543210fedcba
+# your_shortpixel_api_key_here

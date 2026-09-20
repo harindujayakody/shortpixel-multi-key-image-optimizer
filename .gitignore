@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Local user data & state
+keys.txt
+shortpixel_state.json
+*.tmp
+*.bak
+
+# Uploads & Output folders
+uploads/
+optimized/
+test_opt/
+test/test_state.json
+
+# System & OS
+.DS_Store
+Thumbs.db
+*.log

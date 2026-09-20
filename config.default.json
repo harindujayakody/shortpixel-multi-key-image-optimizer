@@ -1,0 +1,19 @@
+{
+  "keys": [],
+  "settings": {
+    "lossy": 1,
+    "keepExif": 1,
+    "convertToWebP": false,
+    "convertToAVIF": false,
+    "resize": {
+      "enabled": false,
+      "width": 1920,
+      "height": 1080,
+      "type": "outer"
+    },
+    "concurrency": 2,
+    "backupOriginal": true,
+    "outputDir": "./optimized",
+    "replaceOriginal": false
+  }
+}

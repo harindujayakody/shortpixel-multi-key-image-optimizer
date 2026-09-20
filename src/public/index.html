@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShortPixel Multi-Key Optimizer</title>
+  <!-- Tailwind CSS via CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans selection:bg-indigo-500 selection:text-white">
+
+  <!-- Navigation Bar -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30 px-6 py-3.5 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+        <i class="fa-solid fa-bolt text-lg text-white"></i>
+      </div>
+      <div>
+        <h1 class="text-lg font-bold tracking-tight bg-gradient-to-r from-white via-slate-200 to-slate-400 bg-clip-text text-transparent">
+          ShortPixel Multi-Key Optimizer
+        </h1>
+        <p class="text-xs text-slate-400">Auto-Rotation Pool • State Persistence • Pause/Resume</p>
+      </div>
+    </div>
+
+    <!-- Active Key Status Indicator -->
+    <div class="flex items-center gap-3">
+      <div id="active-key-pill" class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs text-slate-300">
+        <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="active-key-label">Active Key: None</span>
+        <span id="active-key-credits" class="font-semibold text-emerald-400"></span>
+      </div>
+
+      <button id="btn-open-settings" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition" title="Settings">
+        <i class="fa-solid fa-sliders"></i>
+      </button>
+
+      <a href="/api/download-zip" class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200 flex items-center gap-2 transition" title="Download all optimized files">
+        <i class="fa-solid fa-download"></i> Zip All
+      </a>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+
+    <!-- Top Alert Notification Area -->
+    <div id="alert-banner" class="hidden rounded-xl border p-4 text-sm flex items-center justify-between transition-all">
+      <div class="flex items-center gap-3">
+        <i id="alert-icon" class="fa-solid fa-circle-info text-base"></i>
+        <span id="alert-message">Alert message</span>
+      </div>
+      <button onclick="dismissAlert()" class="text-slate-400 hover:text-white text-xs"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+
+    <!-- Stats Summary Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="card p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-4">
+        <div class="h-12 w-12 rounded-lg bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400 text-xl">
+          <i class="fa-solid fa-images"></i>
+        </div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">Images Optimized</div>
+          <div id="stat-processed" class="text-2xl font-bold text-white mt-0.5">0</div>
+          <div id="stat-queue-info" class="text-[11px] text-slate-500">0 in queue</div>
+        </div>
+      </div>
+
+      <div class="card p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-4">
+        <div class="h-12 w-12 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 text-xl">
+          <i class="fa-solid fa-hard-drive"></i>
+        </div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">Storage Saved</div>
+          <div id="stat-saved-bytes" class="text-2xl font-bold text-emerald-400 mt-0.5">0 B</div>
+          <div id="stat-original-size" class="text-[11px] text-slate-500">From 0 B total</div>
+        </div>
+      </div>
+
+      <div class="card p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-4">
+        <div class="h-12 w-12 rounded-lg bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-xl">
+          <i class="fa-solid fa-percent"></i>
+        </div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">Compression Ratio</div>
+          <div id="stat-ratio" class="text-2xl font-bold text-cyan-400 mt-0.5">0%</div>
+          <div class="text-[11px] text-slate-500">Average reduction</div>
+        </div>
+      </div>
+
+      <div class="card p-4 rounded-xl bg-slate-900 border border-slate-800 flex items-center gap-4">
+        <div class="h-12 w-12 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 text-xl">
+          <i class="fa-solid fa-key"></i>
+        </div>
+        <div>
+          <div class="text-xs text-slate-400 font-medium">API Keys Pool</div>
+          <div id="stat-keys-count" class="text-2xl font-bold text-white mt-0.5">0</div>
+          <div id="stat-keys-available" class="text-[11px] text-amber-400/80">0 usable keys</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Grid: Key Pool Manager & Optimization Controls -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+      <!-- Left Column: Key Pool Manager (1 Col) -->
+      <div class="space-y-6">
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 flex flex-col">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <i class="fa-solid fa-shield-halved text-indigo-400"></i>
+              <h2 class="text-sm font-semibold text-white">API Key Pool</h2>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <button id="btn-refresh-keys" class="text-xs px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 transition" title="Refresh balances">
+                <i class="fa-solid fa-rotate"></i>
+              </button>
+              <button id="btn-show-add-key" class="text-xs px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-medium flex items-center gap-1 transition">
+                <i class="fa-solid fa-plus"></i> Add
+              </button>
+            </div>
+          </div>
+
+          <!-- Add Key Expandable Section -->
+          <div id="add-key-container" class="hidden mb-4 p-3 bg-slate-950/80 border border-slate-800 rounded-lg space-y-2">
+            <label class="text-xs text-slate-400">Add API Key(s) (one per line):</label>
+            <textarea id="input-api-keys" rows="3" placeholder="Paste your ShortPixel API key(s) here..." class="w-full bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500"></textarea>
+            <div class="flex justify-end gap-2">
+              <button id="btn-cancel-add-key" class="text-xs px-2.5 py-1 text-slate-400 hover:text-white">Cancel</button>
+              <button id="btn-submit-keys" class="text-xs px-3 py-1 bg-indigo-600 hover:bg-indigo-500 rounded text-white font-medium">Verify & Add</button>
+            </div>
+          </div>
+
+          <!-- Keys List Container -->
+          <div id="keys-list" class="space-y-2.5 overflow-y-auto max-h-[380px] pr-1">
+            <div class="text-xs text-slate-500 text-center py-6">No API keys registered yet. Add one or more keys above!</div>
+          </div>
+        </div>
+
+        <!-- Directory Scanner Card -->
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 space-y-4">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-folder-open text-amber-400"></i>
+            <h2 class="text-sm font-semibold text-white">Scan Local Folder</h2>
+          </div>
+          <div class="space-y-2">
+            <label class="text-xs text-slate-400">Folder Path on Server/Machine:</label>
+            <div class="flex gap-2">
+              <input id="input-folder-path" type="text" placeholder="e.g. D:\Photos or ./my-images" class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500">
+              <button id="btn-scan-folder" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-medium text-slate-200 transition">Scan & Queue</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Queue Runner & Ingestion (2 Cols) -->
+      <div class="lg:col-span-2 space-y-6">
+
+        <!-- Queue Action Toolbar & Dropzone -->
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="text-sm font-semibold text-white flex items-center gap-2">
+                <i class="fa-solid fa-list-check text-indigo-400"></i>
+                Optimization Queue
+              </h2>
+              <p class="text-xs text-slate-400 mt-0.5">Control batch runs, pause and resume at any time.</p>
+            </div>
+
+            <!-- Queue Control Buttons -->
+            <div class="flex items-center gap-2">
+              <button id="btn-start-queue" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-semibold text-white shadow-lg shadow-emerald-600/20 flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-play"></i> Start
+              </button>
+              <button id="btn-pause-queue" class="hidden px-4 py-2 bg-amber-600 hover:bg-amber-500 rounded-lg text-xs font-semibold text-white shadow-lg shadow-amber-600/20 flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-pause"></i> Pause
+              </button>
+              <button id="btn-resume-queue" class="hidden px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-semibold text-white shadow-lg shadow-indigo-600/20 flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-play"></i> Resume
+              </button>
+              <button id="btn-stop-queue" class="hidden px-3 py-2 bg-slate-800 hover:bg-rose-600/20 border border-slate-700 hover:border-rose-500/30 text-slate-300 hover:text-rose-400 rounded-lg text-xs transition" title="Stop">
+                <i class="fa-solid fa-stop"></i>
+              </button>
+              <button id="btn-retry-failed" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg text-xs transition" title="Retry Failed">
+                <i class="fa-solid fa-rotate-left"></i>
+              </button>
+              <button id="btn-clear-queue" class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 rounded-lg text-xs transition" title="Clear Queue">
+                <i class="fa-solid fa-trash-can"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Drag & Drop Area -->
+          <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl p-5 text-center cursor-pointer transition bg-slate-950/40">
+            <input type="file" id="file-upload" multiple accept="image/*,.pdf" class="hidden">
+            <div class="flex flex-col items-center justify-center gap-2">
+              <div class="h-10 w-10 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 text-lg">
+                <i class="fa-solid fa-cloud-arrow-up"></i>
+              </div>
+              <div class="text-xs font-medium text-slate-300">
+                <span class="text-indigo-400 font-semibold">Click to upload</span> or drag and drop images here
+              </div>
+              <p class="text-[11px] text-slate-500">Supports JPG, PNG, WEBP, GIF, AVIF, PDF (up to 50MB per file)</p>
+            </div>
+          </div>
+
+          <!-- Progress Bar -->
+          <div id="progress-container" class="space-y-1.5 pt-1">
+            <div class="flex justify-between text-xs text-slate-400">
+              <span id="progress-label">Queue Ready</span>
+              <span id="progress-percent" class="font-medium text-slate-200">0%</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+              <div id="progress-bar" class="bg-gradient-to-r from-indigo-500 to-emerald-400 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Queue Items Table -->
+        <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex flex-col">
+          <div class="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-semibold text-slate-300">Queue Items</span>
+              <span id="queue-badge" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-400">0</span>
+            </div>
+            
+            <!-- Status Filter -->
+            <div class="flex items-center gap-1">
+              <button onclick="setQueueFilter('ALL')" class="filter-btn active text-[11px] px-2.5 py-1 rounded bg-slate-800 text-white font-medium" data-filter="ALL">All</button>
+              <button onclick="setQueueFilter('PENDING')" class="filter-btn text-[11px] px-2.5 py-1 rounded text-slate-400 hover:text-white" data-filter="PENDING">Pending</button>
+              <button onclick="setQueueFilter('COMPLETED')" class="filter-btn text-[11px] px-2.5 py-1 rounded text-slate-400 hover:text-white" data-filter="COMPLETED">Completed</button>
+              <button onclick="setQueueFilter('FAILED')" class="filter-btn text-[11px] px-2.5 py-1 rounded text-slate-400 hover:text-white" data-filter="FAILED">Failed</button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto max-h-[420px] overflow-y-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-950/60 text-slate-400 uppercase tracking-wider text-[10px] sticky top-0">
+                <tr>
+                  <th class="px-4 py-2.5">File</th>
+                  <th class="px-4 py-2.5">Original</th>
+                  <th class="px-4 py-2.5">Optimized</th>
+                  <th class="px-4 py-2.5">Savings</th>
+                  <th class="px-4 py-2.5">Key Used</th>
+                  <th class="px-4 py-2.5 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody id="queue-table-body" class="divide-y divide-slate-800/60 text-slate-300">
+                <tr>
+                  <td colspan="6" class="px-4 py-8 text-center text-slate-500">No items in queue. Upload images or scan a folder above.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Live Activity Log -->
+        <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 space-y-2">
+          <div class="flex items-center justify-between text-xs text-slate-400">
+            <span class="font-semibold flex items-center gap-1.5"><i class="fa-solid fa-terminal text-indigo-400"></i> Real-time Activity Logs</span>
+            <button onclick="clearLogs()" class="hover:text-white text-[11px]">Clear</button>
+          </div>
+          <div id="activity-log" class="h-28 overflow-y-auto bg-slate-950 rounded-lg p-2.5 font-mono text-[11px] text-slate-400 space-y-1">
+            <div class="text-slate-600">[System] Optimizer ready. Memory state loaded.</div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-indigo-400"></i> Optimization Settings
+        </h3>
+        <button id="btn-close-settings" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div class="space-y-4 text-xs">
+        <!-- Compression Type -->
+        <div class="space-y-1.5">
+          <label class="text-slate-300 font-medium">Compression Level</label>
+          <select id="setting-lossy" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-indigo-500">
+            <option value="1">Lossy (Best compression & good quality - Recommended)</option>
+            <option value="2">Glossy (High quality for photographers)</option>
+            <option value="0">Lossless (Pixel perfect, smaller compression)</option>
+          </select>
+        </div>
+
+        <!-- Output Folder -->
+        <div class="space-y-1.5">
+          <label class="text-slate-300 font-medium">Output Directory</label>
+          <input id="setting-outputDir" type="text" value="./optimized" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-indigo-500">
+        </div>
+
+        <!-- Next-Gen Formats -->
+        <div class="space-y-2 pt-1">
+          <label class="flex items-center gap-2.5 text-slate-300 cursor-pointer">
+            <input type="checkbox" id="setting-webp" class="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0">
+            <span>Also generate WebP version alongside</span>
+          </label>
+          <label class="flex items-center gap-2.5 text-slate-300 cursor-pointer">
+            <input type="checkbox" id="setting-avif" class="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0">
+            <span>Also generate AVIF version alongside</span>
+          </label>
+          <label class="flex items-center gap-2.5 text-slate-300 cursor-pointer">
+            <input type="checkbox" id="setting-exif" checked class="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0">
+            <span>Keep EXIF / Camera metadata</span>
+          </label>
+        </div>
+
+        <!-- Concurrency -->
+        <div class="space-y-1.5 pt-1">
+          <label class="text-slate-300 font-medium">Concurrent Uploads (Workers)</label>
+          <select id="setting-concurrency" class="w-full bg-slate-950 border border-slate-700 rounded-lg p-2 text-slate-200 focus:outline-none focus:border-indigo-500">
+            <option value="1">1 (Sequential / Gentle)</option>
+            <option value="2" selected>2 (Recommended)</option>
+            <option value="3">3 (Fast)</option>
+            <option value="5">5 (High speed)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+        <button id="btn-cancel-settings" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-xs text-slate-300">Cancel</button>
+        <button id="btn-save-settings" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-semibold text-white">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
