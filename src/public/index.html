@@ -193,17 +193,42 @@
             </div>
           </div>
 
-          <!-- Drag & Drop Area -->
-          <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl p-5 text-center cursor-pointer transition bg-slate-950/40">
-            <input type="file" id="file-upload" multiple accept="image/*,.pdf" class="hidden">
-            <div class="flex flex-col items-center justify-center gap-2">
-              <div class="h-10 w-10 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 text-lg">
+          <!-- Drag & Drop & Folder Picker Area -->
+          <div class="space-y-2">
+            <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-xl p-6 text-center transition bg-slate-950/40 flex flex-col items-center justify-center gap-3">
+              <input type="file" id="file-upload" multiple accept="image/*,.pdf" class="hidden">
+              <input type="file" id="folder-upload" webkitdirectory directory multiple class="hidden">
+              
+              <div class="h-12 w-12 rounded-full bg-indigo-500/10 flex items-center justify-center text-indigo-400 text-xl">
                 <i class="fa-solid fa-cloud-arrow-up"></i>
               </div>
-              <div class="text-xs font-medium text-slate-300">
-                <span class="text-indigo-400 font-semibold">Click to upload</span> or drag and drop images here
+
+              <div class="space-y-1">
+                <div class="text-xs font-semibold text-slate-200">
+                  Drag & drop images here or select an option below:
+                </div>
+                <p class="text-[11px] text-slate-400">Supports JPG, PNG, WEBP, GIF, AVIF, PDF (subdirectories preserved)</p>
               </div>
-              <p class="text-[11px] text-slate-500">Supports JPG, PNG, WEBP, GIF, AVIF, PDF (up to 50MB per file)</p>
+
+              <div class="flex items-center gap-2 pt-1">
+                <button type="button" id="btn-pick-files" class="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-semibold text-white shadow transition flex items-center gap-1.5">
+                  <i class="fa-solid fa-file-image"></i> Choose Files
+                </button>
+                <button type="button" id="btn-pick-folder" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-xs font-semibold text-slate-200 transition flex items-center gap-1.5">
+                  <i class="fa-solid fa-folder-tree text-amber-400"></i> Choose Folder
+                </button>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between text-[11px] text-slate-400 px-1">
+              <label class="flex items-center gap-2 cursor-pointer hover:text-slate-200 transition">
+                <input type="checkbox" id="setting-auto-download" checked class="rounded border-slate-700 bg-slate-950 text-indigo-600 focus:ring-0">
+                <span>Auto-download ZIP when batch finishes</span>
+              </label>
+              <div class="flex items-center gap-1 text-slate-400">
+                <span>Output Folder:</span>
+                <span id="label-output-dir" class="font-mono text-slate-300 bg-slate-800 px-2 py-0.5 rounded text-[10px]">./optimized</span>
+              </div>
             </div>
           </div>
 

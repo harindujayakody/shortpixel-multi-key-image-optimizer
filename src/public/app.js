@@ -12,7 +12,7 @@ const activityLogEl = document.getElementById('activity-log');
 const activeKeyLabel = document.getElementById('active-key-label');
 const activeKeyCredits = document.getElementById('active-key-credits');
 
-// Buttons
+// Buttons & Controls
 const btnStartQueue = document.getElementById('btn-start-queue');
 const btnPauseQueue = document.getElementById('btn-pause-queue');
 const btnResumeQueue = document.getElementById('btn-resume-queue');
@@ -29,7 +29,12 @@ const inputApiKeys = document.getElementById('input-api-keys');
 const btnScanFolder = document.getElementById('btn-scan-folder');
 const inputFolderPath = document.getElementById('input-folder-path');
 const fileUpload = document.getElementById('file-upload');
+const folderUpload = document.getElementById('folder-upload');
+const btnPickFiles = document.getElementById('btn-pick-files');
+const btnPickFolder = document.getElementById('btn-pick-folder');
 const dropzone = document.getElementById('dropzone');
+const autoDownloadCheckbox = document.getElementById('setting-auto-download');
+const labelOutputDir = document.getElementById('label-output-dir');
 
 // Settings Modal
 const btnOpenSettings = document.getElementById('btn-open-settings');
@@ -62,23 +67,29 @@ function initSSE() {
   eventSource = new EventSource('/api/events');
 
   eventSource.addEventListener('init', e => {
-    const data = JSON.parse(e.data);
-    updateStats(data.stats);
-    updateKeysList(data.keys);
-    loadSettingsIntoModal(data.settings);
+    try {
+      const data = JSON.parse(e.data);
+      updateStats(data.stats);
+      updateKeysList(data.keys);
+      loadSettingsIntoModal(data.settings);
+    } catch {}
   });
 
   eventSource.addEventListener('keysUpdated', e => {
-    const data = JSON.parse(e.data);
-    updateKeysList(data.keys);
-    fetchStats();
+    try {
+      const data = JSON.parse(e.data);
+      updateKeysList(data.keys);
+      fetchStats();
+    } catch {}
   });
 
   eventSource.addEventListener('keyRotated', e => {
-    const data = JSON.parse(e.data);
-    logActivity(`[Auto-Rotation] Key exhausted (${data.previousKey || data.oldKey}) -> Switched to ${data.nextKey || data.newKey || 'None'}`);
-    showAlert(`Auto-switched to key: ${data.nextKey || data.newKey || 'None'} (Previous key ran out of quota)`, 'warning');
-    fetchKeys();
+    try {
+      const data = JSON.parse(e.data);
+      logActivity(`[Auto-Rotation] Key exhausted (${data.previousKey || data.oldKey}) -> Switched to ${data.nextKey || data.newKey || 'None'}`);
+      showAlert(`Auto-switched to key: ${data.nextKey || data.newKey || 'None'} (Previous key ran out of quota)`, 'warning');
+      fetchKeys();
+    } catch {}
   });
 
   eventSource.addEventListener('allKeysExhausted', () => {
@@ -88,24 +99,30 @@ function initSSE() {
   });
 
   eventSource.addEventListener('itemStarted', e => {
-    const data = JSON.parse(e.data);
-    logActivity(`Processing: ${data.item.fileName}...`);
-    fetchQueue();
+    try {
+      const data = JSON.parse(e.data);
+      logActivity(`Processing: ${data.item.fileName}...`);
+      fetchQueue();
+    } catch {}
   });
 
   eventSource.addEventListener('itemCompleted', e => {
-    const data = JSON.parse(e.data);
-    const item = data.item;
-    logActivity(`Done: ${item.fileName} (${formatBytes(item.savedBytes)} saved, -${item.percentImprovement}%) [Key: ${item.keyUsed}]`);
-    fetchQueue();
-    fetchStats();
+    try {
+      const data = JSON.parse(e.data);
+      const item = data.item;
+      logActivity(`Done: ${item.fileName} (${formatBytes(item.savedBytes)} saved, -${item.percentImprovement}%) [Key: ${item.keyUsed}]`);
+      fetchQueue();
+      fetchStats();
+    } catch {}
   });
 
   eventSource.addEventListener('itemFailed', e => {
-    const data = JSON.parse(e.data);
-    logActivity(`Failed: ${data.item.fileName} - ${data.error}`, 'error');
-    fetchQueue();
-    fetchStats();
+    try {
+      const data = JSON.parse(e.data);
+      logActivity(`Failed: ${data.item.fileName} - ${data.error}`, 'error');
+      fetchQueue();
+      fetchStats();
+    } catch {}
   });
 
   eventSource.addEventListener('queueStarted', () => {
@@ -126,7 +143,15 @@ function initSSE() {
   eventSource.addEventListener('queueCompleted', () => {
     logActivity('All images in queue completed!');
     setRunningState(false, false);
-    showAlert('Optimization finished! All queued images have been processed.', 'success');
+    showAlert('Optimization finished! All files saved into output folder.', 'success');
+
+    // Auto-download ZIP if checkbox is checked
+    if (autoDownloadCheckbox && autoDownloadCheckbox.checked) {
+      logActivity('Initiating automatic ZIP download...');
+      setTimeout(() => {
+        window.location.href = '/api/download-zip';
+      }, 800);
+    }
   });
 
   eventSource.addEventListener('queueUpdated', () => {
@@ -135,7 +160,6 @@ function initSSE() {
   });
 
   eventSource.onerror = () => {
-    // Retry in 3 seconds
     setTimeout(initSSE, 3000);
   };
 }
@@ -148,6 +172,7 @@ async function fetchInitialData() {
 async function fetchKeys() {
   try {
     const res = await fetch('/api/keys');
+    if (!res.ok) return;
     const data = await res.json();
     if (data.success) {
       keysData = data.keys;
@@ -161,6 +186,7 @@ async function fetchKeys() {
 async function fetchQueue() {
   try {
     const res = await fetch('/api/queue');
+    if (!res.ok) return;
     const data = await res.json();
     if (data.success) {
       queueData = data.queue;
@@ -175,6 +201,7 @@ async function fetchQueue() {
 async function fetchStats() {
   try {
     const res = await fetch('/api/stats');
+    if (!res.ok) return;
     const data = await res.json();
     if (data.success) {
       statsData = data.stats;
@@ -188,6 +215,7 @@ async function fetchStats() {
 async function fetchSettings() {
   try {
     const res = await fetch('/api/settings');
+    if (!res.ok) return;
     const data = await res.json();
     if (data.success) {
       loadSettingsIntoModal(data.settings);
@@ -223,7 +251,7 @@ function updateKeysList(keys) {
   }
 
   // Render cards
-  keysListEl.innerHTML = keys.map((k, idx) => {
+  keysListEl.innerHTML = keys.map(k => {
     let statusBadge = '';
     if (k.status === 'ACTIVE') {
       statusBadge = '<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i class="fa-solid fa-circle text-[6px] mr-1"></i>Active</span>';
@@ -278,7 +306,7 @@ function renderQueueTable() {
     queueTableBody.innerHTML = `
       <tr>
         <td colspan="6" class="px-4 py-8 text-center text-slate-500">
-          ${queueData.length === 0 ? 'No items in queue. Upload images or scan a folder above.' : `No items with status "${currentFilter}".`}
+          ${queueData.length === 0 ? 'No items in queue. Choose a folder or upload images above.' : `No items with status "${currentFilter}".`}
         </td>
       </tr>
     `;
@@ -453,14 +481,14 @@ function setupEventListeners() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ keys: raw })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.success) {
         showAlert(`Successfully verified and added ${data.count} key(s) to the pool!`, 'success');
         inputApiKeys.value = '';
         addKeyContainer.classList.add('hidden');
         await fetchKeys();
       } else {
-        showAlert(`Error adding keys: ${data.error}`, 'error');
+        showAlert(`Error adding keys: ${data.error || 'Server error'}`, 'error');
       }
     } catch (err) {
       showAlert(`Network error: ${err.message}`, 'error');
@@ -500,7 +528,7 @@ function setupEventListeners() {
 
   btnRetryFailed.addEventListener('click', async () => {
     const res = await fetch('/api/queue/retry-failed', { method: 'POST' });
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     showAlert(`Reset ${data.retriedCount || 0} failed items to pending.`, 'info');
     fetchQueue();
   });
@@ -512,7 +540,7 @@ function setupEventListeners() {
     }
   });
 
-  // Folder Scanner
+  // Folder Scanner (Local Path)
   btnScanFolder.addEventListener('click', async () => {
     const folderPath = inputFolderPath.value.trim();
     if (!folderPath) {
@@ -529,12 +557,12 @@ function setupEventListeners() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ folderPath, autoQueue: true })
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (data.success) {
         showAlert(`Found ${data.scannedCount} images in folder and added to queue!`, 'success');
         fetchQueue();
       } else {
-        showAlert(`Scan failed: ${data.error}`, 'error');
+        showAlert(`Scan failed: ${data.error || 'Unknown error'}`, 'error');
       }
     } catch (err) {
       showAlert(`Network error: ${err.message}`, 'error');
@@ -544,8 +572,20 @@ function setupEventListeners() {
     }
   });
 
-  // Drag & Drop Upload
-  dropzone.addEventListener('click', () => fileUpload.click());
+  // File & Folder Picker Triggers
+  btnPickFiles.addEventListener('click', e => {
+    e.stopPropagation();
+    fileUpload.click();
+  });
+
+  btnPickFolder.addEventListener('click', e => {
+    e.stopPropagation();
+    folderUpload.click();
+  });
+
+  dropzone.addEventListener('click', () => {
+    fileUpload.click();
+  });
 
   fileUpload.addEventListener('change', () => {
     if (fileUpload.files.length > 0) {
@@ -553,6 +593,13 @@ function setupEventListeners() {
     }
   });
 
+  folderUpload.addEventListener('change', () => {
+    if (folderUpload.files.length > 0) {
+      uploadFiles(folderUpload.files, true);
+    }
+  });
+
+  // Drag & Drop
   dropzone.addEventListener('dragover', e => {
     e.preventDefault();
     dropzone.classList.add('dropzone-active');
@@ -578,25 +625,38 @@ function setupEventListeners() {
 }
 
 // Upload Files via multipart
-async function uploadFiles(fileList) {
+async function uploadFiles(fileList, isFolder = false) {
   const formData = new FormData();
+  const relativePathsMap = {};
+
   for (let i = 0; i < fileList.length; i++) {
-    formData.append('images', fileList[i]);
+    const file = fileList[i];
+    formData.append('images', file);
+    if (file.webkitRelativePath) {
+      relativePathsMap[file.name] = file.webkitRelativePath;
+    }
   }
 
-  showAlert(`Uploading ${fileList.length} files...`, 'info');
+  formData.append('relativePaths', JSON.stringify(relativePathsMap));
+
+  showAlert(`Uploading ${fileList.length} ${isFolder ? 'folder' : ''} files...`, 'info');
 
   try {
     const res = await fetch('/api/upload', {
       method: 'POST',
       body: formData
     });
-    const data = await res.json();
+
+    const data = await res.json().catch(async () => {
+      const text = await res.text();
+      return { success: false, error: text.slice(0, 100) };
+    });
+
     if (data.success) {
-      showAlert(`Uploaded and queued ${data.queuedCount} images!`, 'success');
+      showAlert(`Queued ${data.queuedCount || fileList.length} image(s)! Click "Start" to begin optimization.`, 'success');
       fetchQueue();
     } else {
-      showAlert(`Upload failed: ${data.error}`, 'error');
+      showAlert(`Upload failed: ${data.error || 'Server rejected file'}`, 'error');
     }
   } catch (err) {
     showAlert(`Upload error: ${err.message}`, 'error');
@@ -629,6 +689,10 @@ function loadSettingsIntoModal(settings) {
   document.getElementById('setting-avif').checked = !!settings.convertToAVIF;
   document.getElementById('setting-exif').checked = settings.keepExif !== 0;
   document.getElementById('setting-concurrency').value = settings.concurrency || 2;
+
+  if (labelOutputDir) {
+    labelOutputDir.textContent = settings.outputDir || './optimized';
+  }
 }
 
 async function saveSettingsFromModal() {
@@ -642,13 +706,19 @@ async function saveSettingsFromModal() {
   };
 
   try {
-    await fetch('/api/settings', {
+    const res = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newSettings)
     });
-    settingsModal.classList.add('hidden');
-    showAlert('Settings updated successfully!', 'success');
+    const data = await res.json().catch(() => ({}));
+    if (data.success) {
+      if (labelOutputDir) {
+        labelOutputDir.textContent = newSettings.outputDir;
+      }
+      settingsModal.classList.add('hidden');
+      showAlert('Settings updated successfully!', 'success');
+    }
   } catch (err) {
     showAlert(`Error saving settings: ${err.message}`, 'error');
   }

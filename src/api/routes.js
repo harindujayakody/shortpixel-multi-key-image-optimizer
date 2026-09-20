@@ -22,12 +22,12 @@ export function createApiRouter(stateStore, keyManager, queue) {
 
   const upload = multer({
     storage,
-    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB per file
+    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB per file
     fileFilter: (req, file, cb) => {
       if (isSupportedFile(file.originalname)) {
         cb(null, true);
       } else {
-        cb(new Error(`Unsupported file type: ${path.extname(file.originalname)}`));
+        cb(new Error(`Unsupported file type: ${path.extname(file.originalname)} (${file.originalname})`));
       }
     }
   });
@@ -208,32 +208,49 @@ export function createApiRouter(stateStore, keyManager, queue) {
     }
   });
 
-  router.post('/upload', upload.array('images', 100), (req, res) => {
-    try {
-      const files = req.files || [];
-      if (files.length === 0) {
-        return res.status(400).json({ success: false, error: 'No files uploaded' });
+  router.post('/upload', (req, res) => {
+    upload.array('images', 1000)(req, res, err => {
+      if (err) {
+        return res.status(400).json({ success: false, error: err.message });
       }
 
-      const queueItems = files.map(f => ({
-        name: f.originalname,
-        fullPath: path.resolve(f.path),
-        relativePath: f.originalname,
-        size: f.size
-      }));
+      try {
+        const files = req.files || [];
+        if (files.length === 0) {
+          return res.status(400).json({ success: false, error: 'No files uploaded' });
+        }
 
-      const added = stateStore.addToQueue(queueItems);
-      broadcastSSE('queueUpdated', { stats: stateStore.getStats() });
+        // Optional relative paths map sent as JSON string
+        let relativePathsMap = {};
+        if (req.body.relativePaths) {
+          try {
+            relativePathsMap = JSON.parse(req.body.relativePaths);
+          } catch {}
+        }
 
-      res.json({
-        success: true,
-        uploadedCount: files.length,
-        queuedCount: added.length,
-        stats: stateStore.getStats()
-      });
-    } catch (err) {
-      res.status(500).json({ success: false, error: err.message });
-    }
+        const queueItems = files.map(f => {
+          const relPath = relativePathsMap[f.originalname] || f.originalname;
+          return {
+            name: path.basename(relPath),
+            fullPath: path.resolve(f.path),
+            relativePath: relPath,
+            size: f.size
+          };
+        });
+
+        const added = stateStore.addToQueue(queueItems);
+        broadcastSSE('queueUpdated', { stats: stateStore.getStats() });
+
+        res.json({
+          success: true,
+          uploadedCount: files.length,
+          queuedCount: added.length,
+          stats: stateStore.getStats()
+        });
+      } catch (innerErr) {
+        res.status(500).json({ success: false, error: innerErr.message });
+      }
+    });
   });
 
   // ===================== Settings & Stats =====================
