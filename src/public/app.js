@@ -61,12 +61,7 @@ const btnRefreshKeys = document.getElementById('btn-refresh-keys');
 const boxAddKey = document.getElementById('box-add-key');
 const inputNewKeys = document.getElementById('input-new-keys');
 
-const btnToggleAddProxy = document.getElementById('btn-toggle-add-proxy');
-const btnCancelAddProxy = document.getElementById('btn-cancel-add-proxy');
-const btnSaveNewProxies = document.getElementById('btn-save-new-proxies');
 const btnTestAllProxies = document.getElementById('btn-test-all-proxies');
-const boxAddProxy = document.getElementById('box-add-proxy');
-const inputNewProxies = document.getElementById('input-new-proxies');
 const settingUseProxy = document.getElementById('setting-use-proxy');
 
 const btnToggleFetchRemote = document.getElementById('btn-toggle-fetch-remote');
@@ -696,44 +691,6 @@ function setupEventListeners() {
   });
 
   // Proxy Actions
-  btnToggleAddProxy.addEventListener('click', () => {
-    boxAddProxy.classList.toggle('hidden');
-    if (!boxAddProxy.classList.contains('hidden')) inputNewProxies.focus();
-  });
-
-  btnCancelAddProxy.addEventListener('click', () => {
-    boxAddProxy.classList.add('hidden');
-    inputNewProxies.value = '';
-  });
-
-  btnSaveNewProxies.addEventListener('click', async () => {
-    const raw = inputNewProxies.value.trim();
-    if (!raw) return;
-
-    btnSaveNewProxies.disabled = true;
-    btnSaveNewProxies.textContent = 'Adding...';
-
-    try {
-      const res = await fetch('/api/proxies', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ proxies: raw })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (data.success) {
-        showToast(`Added ${data.count} proxy servers to pool`, 'success');
-        inputNewProxies.value = '';
-        boxAddProxy.classList.add('hidden');
-        await fetchProxies();
-      }
-    } catch (err) {
-      showToast(`Proxy add error: ${err.message}`, 'error');
-    } finally {
-      btnSaveNewProxies.disabled = false;
-      btnSaveNewProxies.textContent = 'Add Proxies';
-    }
-  });
-
   btnTestAllProxies.addEventListener('click', async () => {
     showToast('Benchmarking proxy pool latency...', 'info');
     await fetch('/api/proxies/test', { method: 'POST' });
@@ -743,7 +700,6 @@ function setupEventListeners() {
   if (btnToggleFetchRemote) {
     btnToggleFetchRemote.addEventListener('click', () => {
       boxFetchRemote.classList.toggle('hidden');
-      if (boxAddProxy) boxAddProxy.classList.add('hidden');
     });
   }
 
