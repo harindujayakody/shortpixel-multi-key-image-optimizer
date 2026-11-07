@@ -1,0 +1,12 @@
+# Proxy list (one per line)
+# Copy this file to proxies.txt and replace the examples with your own
+# proxies. proxies.txt is gitignored — never commit real proxy credentials.
+# Supported formats:
+#   http://ip:port
+#   http://user:pass@ip:port
+#   socks5://ip:port
+#   socks5://user:pass@ip:port
+#   ip:port
+#   ip:port:user:pass
+http://127.0.0.1:8080
+socks5://127.0.0.1:1080

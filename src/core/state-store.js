@@ -74,6 +74,7 @@ export class StateStore {
       const tempPath = `${this.stateFilePath}.tmp`;
       const json = JSON.stringify(this.state, null, 2);
       fs.writeFileSync(tempPath, json, 'utf8');
+      try { fs.chmodSync(tempPath, 0o600); } catch {}
       fs.renameSync(tempPath, this.stateFilePath);
     } catch (err) {
       console.error(`[StateStore] Error saving state: ${err.message}`);
