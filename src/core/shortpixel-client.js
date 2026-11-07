@@ -280,7 +280,10 @@ export class ShortPixelClient {
         compressedSize,
         percentImprovement: Math.max(0, percentImprovement),
         savedBytes,
-        keyUsed: apiKey,
+        // Never store or return the full key value in results: queue items
+        // and history are served to the dashboard. The masked form is
+        // enough to identify which key was used.
+        keyUsed: apiKey ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : '',
         raw: resultItem
       };
     } catch (err) {
@@ -355,7 +358,8 @@ export class ShortPixelClient {
             compressedSize,
             percentImprovement: Math.max(0, percentImprovement),
             savedBytes,
-            keyUsed: apiKey,
+            // Masked for the same reason as above: never return the full key.
+            keyUsed: apiKey ? `${apiKey.slice(0, 4)}...${apiKey.slice(-4)}` : '',
             raw: item
           };
         } else if (statusCode < 0) {

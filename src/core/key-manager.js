@@ -1,4 +1,5 @@
 import fs from 'fs';
+import crypto from 'crypto';
 import EventEmitter from 'events';
 import { ShortPixelClient } from './shortpixel-client.js';
 
@@ -41,6 +42,7 @@ export class KeyManager extends EventEmitter {
       const keys = this.getKeys();
       const content = keys.map(k => k.key).join('\n') + '\n';
       fs.writeFileSync(filePath, content, 'utf8');
+      try { fs.chmodSync(filePath, 0o600); } catch {}
     } catch (err) {
       console.error(`[KeyManager] Error syncing keys to file: ${err.message}`);
     }
@@ -51,6 +53,31 @@ export class KeyManager extends EventEmitter {
    */
   getKeys() {
     return this.stateStore.getKeys();
+  }
+
+  /**
+   * Stable, non-secret identifier for a key: first 16 hex chars of the
+   * SHA-256 of the key value. The API and dashboard use this id for
+   * refresh/delete actions so the full key value never has to leave
+   * the server (see routes.js sanitizeKey()).
+   */
+  static keyIdFor(keyStr) {
+    return crypto.createHash('sha256').update(String(keyStr).trim()).digest('hex').slice(0, 16);
+  }
+
+  keyIdFor(keyStr) {
+    return KeyManager.keyIdFor(keyStr);
+  }
+
+  /**
+   * Resolve an identifier sent by the dashboard — either a key id
+   * (preferred) or, for backwards compatibility, the full key value —
+   * to the stored key object. Returns undefined when not found.
+   */
+  getKeyByIdOrKey(identifier) {
+    if (!identifier) return undefined;
+    const id = String(identifier).trim();
+    return this.getKeys().find(k => KeyManager.keyIdFor(k.key) === id || k.key === id);
   }
 
   /**
@@ -73,8 +100,9 @@ export class KeyManager extends EventEmitter {
   /**
    * Remove a key from pool and sync to keys.txt
    */
-  removeKey(apiKey) {
-    this.stateStore.removeKey(apiKey);
+  removeKey(apiKeyOrId) {
+    const found = this.getKeyByIdOrKey(apiKeyOrId);
+    this.stateStore.removeKey(found ? found.key : apiKeyOrId);
     this.syncKeysToFile();
     this.emit('keysUpdated', this.getKeys());
   }

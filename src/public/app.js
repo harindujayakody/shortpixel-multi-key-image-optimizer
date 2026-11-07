@@ -358,7 +358,7 @@ function updateKeysList(keys) {
       <div class="p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-850 bg-zinc-50/50 dark:bg-black hover:border-zinc-300 dark:hover:border-zinc-700 transition flex items-center justify-between">
         <div class="space-y-1">
           <div class="flex items-center gap-2">
-            <span class="font-mono text-xs font-semibold text-zinc-900 dark:text-zinc-100">${maskKey(k.key)}</span>
+            <span class="font-mono text-xs font-semibold text-zinc-900 dark:text-zinc-100">${k.maskedKey || maskKey(k.key)}</span>
             <span class="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium ${statusClass}">${statusLabel}</span>
           </div>
           <div class="text-[11px] text-zinc-500 dark:text-zinc-400 flex items-center gap-2.5 font-mono">
@@ -368,10 +368,10 @@ function updateKeysList(keys) {
           </div>
         </div>
         <div class="flex items-center gap-1">
-          <button onclick="refreshSingleKey('${k.key}')" class="h-6 w-6 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-white text-xs" title="Refresh Balance">
+          <button onclick="refreshSingleKey('${k.id}')" class="h-6 w-6 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 flex items-center justify-center text-zinc-500 hover:text-zinc-900 dark:hover:text-white text-xs" title="Refresh Balance">
             <i data-lucide="rotate-cw" class="w-3 h-3"></i>
           </button>
-          <button onclick="deleteKey('${k.key}')" class="h-6 w-6 rounded hover:bg-rose-500/10 flex items-center justify-center text-zinc-400 hover:text-rose-500 text-xs" title="Remove Key">
+          <button onclick="deleteKey('${k.id}', '${k.maskedKey || ''}')" class="h-6 w-6 rounded hover:bg-rose-500/10 flex items-center justify-center text-zinc-400 hover:text-rose-500 text-xs" title="Remove Key">
             <i data-lucide="trash-2" class="w-3 h-3"></i>
           </button>
         </div>
@@ -917,18 +917,18 @@ async function uploadFiles(fileList, isFolder = false) {
 }
 
 // Key & Proxy Management Handlers
-window.deleteKey = async function(key) {
-  if (confirm(`Remove key ${maskKey(key)} from pool and keys.txt?`)) {
-    await fetch(`/api/keys/${encodeURIComponent(key)}`, { method: 'DELETE' });
+window.deleteKey = async function(id, label) {
+  if (confirm(`Remove key ${label || id} from pool and keys.txt?`)) {
+    await fetch(`/api/keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
     fetchKeys();
   }
 };
 
-window.refreshSingleKey = async function(key) {
+window.refreshSingleKey = async function(id) {
   await fetch('/api/keys/refresh', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ key })
+    body: JSON.stringify({ id })
   });
   fetchKeys();
 };

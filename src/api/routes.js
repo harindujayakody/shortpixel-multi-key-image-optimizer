@@ -8,6 +8,63 @@ import { scanDirectory, isSupportedFile, formatBytes, ensureDir, getImageDimensi
 export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
   const router = express.Router();
 
+  // ---- Security: never send a full API key or proxy credential to a client ----
+  // Keys are identified in the dashboard by a stable, non-secret id
+  // (SHA-256 prefix, see KeyManager.keyIdFor) plus a masked display value.
+  // The full key value never leaves this process.
+  function sanitizeKey(k) {
+    if (!k) return k;
+    const { key, ...rest } = k;
+    return { ...rest, id: keyManager.keyIdFor(k.key), maskedKey: keyManager.maskKey(k.key) };
+  }
+  const sanitizeKeys = (keys) => (keys || []).map(sanitizeKey);
+
+  // Proxy URLs may embed credentials (user:pass@host). Strip them for clients;
+  // the dashboard only needs host/port/protocol for display (it already masks).
+  function sanitizeProxy(p) {
+    if (!p) return p;
+    let url = p.url || '';
+    try {
+      const u = new URL(url);
+      if (u.password || u.username) { u.username = '***'; u.password = ''; }
+      url = u.toString();
+    } catch {
+      url = url.replace(/:\/\/[^/@]+@/, '://***@');
+    }
+    return { ...p, url };
+  }
+  const sanitizeProxies = (proxies) => (proxies || []).map(sanitizeProxy);
+
+  // Optional dashboard auth. Set ADMIN_TOKEN in the environment to require
+  // `Authorization: Bearer <token>` (or `x-admin-token`) on every /api call.
+  // Without it the dashboard is unauthenticated, so it must only ever be
+  // reached on localhost (the server binds 127.0.0.1 by default).
+  const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+  router.use((req, res, next) => {
+    if (!ADMIN_TOKEN) return next();
+    const supplied = (req.get('authorization') || '').replace(/^Bearer\s+/i, '')
+      || req.get('x-admin-token') || '';
+    const a = Buffer.from(supplied);
+    const b = Buffer.from(ADMIN_TOKEN);
+    let ok = a.length === b.length;
+    if (ok) {
+      let diff = 0;
+      for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
+      ok = diff === 0;
+    }
+    if (ok) return next();
+    return res.status(401).json({ success: false, error: 'Unauthorized: a valid ADMIN_TOKEN is required' });
+  });
+
+  // Folder scans are restricted to allowed roots (default: the working
+  // directory). Set SCAN_ROOTS to a comma-separated list to widen it.
+  const SCAN_ROOTS = (process.env.SCAN_ROOTS || process.cwd())
+    .split(',').map(r => path.resolve(r.trim())).filter(Boolean);
+  function isPathAllowed(p) {
+    const resolved = path.resolve(p);
+    return SCAN_ROOTS.some(root => resolved === root || resolved.startsWith(root + path.sep));
+  }
+
   const uploadDir = path.resolve('./uploads');
   ensureDir(uploadDir);
 
@@ -15,7 +72,7 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
     destination: (req, file, cb) => cb(null, uploadDir),
     filename: (req, file, cb) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e6);
-      cb(null, `${uniqueSuffix}-${file.originalname}`);
+      cb(null, `${uniqueSuffix}-${path.basename(file.originalname)}`);
     }
   });
 
@@ -51,10 +108,10 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
   queue.on('keyRotated', data => broadcastSSE('keyRotated', data));
   queue.on('noKeysAvailable', data => broadcastSSE('noKeysAvailable', data));
   queue.on('allKeysExhausted', () => broadcastSSE('allKeysExhausted', {}));
-  keyManager.on('keysUpdated', keys => broadcastSSE('keysUpdated', { keys, stats: stateStore.getStats() }));
+  keyManager.on('keysUpdated', keys => broadcastSSE('keysUpdated', { keys: sanitizeKeys(keys), stats: stateStore.getStats() }));
   keyManager.on('keyRotated', data => broadcastSSE('keyRotated', data));
   if (proxyManager) {
-    proxyManager.on('proxiesUpdated', proxies => broadcastSSE('proxiesUpdated', { proxies }));
+    proxyManager.on('proxiesUpdated', proxies => broadcastSSE('proxiesUpdated', { proxies: sanitizeProxies(proxies) }));
   }
 
   // ===================== SSE Stream =====================
@@ -68,8 +125,8 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
 
     res.write(`event: init\ndata: ${JSON.stringify({
       stats: stateStore.getStats(),
-      keys: stateStore.getKeys(),
-      proxies: stateStore.getProxies(),
+      keys: sanitizeKeys(stateStore.getKeys()),
+      proxies: sanitizeProxies(stateStore.getProxies()),
       settings: stateStore.getSettings()
     })}\n\n`);
 
@@ -83,10 +140,7 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
     const keys = keyManager.getKeys();
     res.json({
       success: true,
-      keys: keys.map(k => ({
-        ...k,
-        maskedKey: keyManager.maskKey(k.key)
-      })),
+      keys: sanitizeKeys(keys),
       stats: stateStore.getStats()
     });
   });
@@ -114,28 +168,31 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
 
       keyManager.syncKeysToFile();
 
-      res.json({ success: true, count: results.length, keys: keyManager.getKeys(), stats: stateStore.getStats() });
+      res.json({ success: true, count: results.length, keys: sanitizeKeys(keyManager.getKeys()), stats: stateStore.getStats() });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
   });
 
-  router.delete('/keys/:key', (req, res) => {
-    const { key } = req.params;
-    keyManager.removeKey(key);
+  router.delete('/keys/:id', (req, res) => {
+    const found = keyManager.getKeyByIdOrKey(req.params.id);
+    if (!found) return res.status(404).json({ success: false, error: 'Key not found' });
+    keyManager.removeKey(found.key);
     keyManager.syncKeysToFile();
-    res.json({ success: true, keys: keyManager.getKeys(), stats: stateStore.getStats() });
+    res.json({ success: true, keys: sanitizeKeys(keyManager.getKeys()), stats: stateStore.getStats() });
   });
 
   router.post('/keys/refresh', async (req, res) => {
     try {
-      const { key } = req.body;
-      if (key) {
-        const updated = await keyManager.refreshKeyStatus(key);
-        res.json({ success: true, key: updated, stats: stateStore.getStats() });
+      const { key, id } = req.body;
+      const target = keyManager.getKeyByIdOrKey(id || key);
+      if (id || key) {
+        if (!target) return res.status(404).json({ success: false, error: 'Key not found' });
+        const updated = await keyManager.refreshKeyStatus(target.key);
+        res.json({ success: true, key: sanitizeKey(updated), stats: stateStore.getStats() });
       } else {
         const results = await keyManager.refreshAllKeys();
-        res.json({ success: true, keys: results, stats: stateStore.getStats() });
+        res.json({ success: true, keys: sanitizeKeys(results), stats: stateStore.getStats() });
       }
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -144,7 +201,7 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
 
   // ===================== Proxies API =====================
   router.get('/proxies', (req, res) => {
-    res.json({ success: true, proxies: stateStore.getProxies() });
+    res.json({ success: true, proxies: sanitizeProxies(stateStore.getProxies()) });
   });
 
   router.post('/proxies', (req, res) => {
@@ -161,7 +218,7 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
         if (added) results.push(added);
       }
 
-      res.json({ success: true, count: results.length, proxies: stateStore.getProxies() });
+      res.json({ success: true, count: results.length, proxies: sanitizeProxies(stateStore.getProxies()) });
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
     }
@@ -169,7 +226,7 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
 
   router.delete('/proxies/:id', (req, res) => {
     proxyManager.removeProxy(req.params.id);
-    res.json({ success: true, proxies: stateStore.getProxies() });
+    res.json({ success: true, proxies: sanitizeProxies(stateStore.getProxies()) });
   });
 
   router.post('/proxies/fetch-remote', async (req, res) => {
@@ -181,6 +238,7 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
         minUptime: parseInt(minUptime, 10),
         protocol
       });
+      if (result && Array.isArray(result.proxies)) result.proxies = sanitizeProxies(result.proxies);
       res.json(result);
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -195,7 +253,7 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
         res.json({ success: true, result });
       } else {
         const results = await proxyManager.testAllProxies();
-        res.json({ success: true, results, proxies: stateStore.getProxies() });
+        res.json({ success: true, results, proxies: sanitizeProxies(stateStore.getProxies()) });
       }
     } catch (err) {
       res.status(500).json({ success: false, error: err.message });
@@ -270,6 +328,9 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
       }
 
       const cleanPath = path.resolve(folderPath.trim());
+      if (!isPathAllowed(cleanPath)) {
+        return res.status(403).json({ success: false, error: 'Folder is outside the allowed scan roots (SCAN_ROOTS)' });
+      }
       const files = await scanDirectory(cleanPath, { recursive });
 
       let queued = [];
@@ -379,7 +440,7 @@ export function createApiRouter(stateStore, keyManager, proxyManager, queue) {
 
     if (completedItems.length > 0) {
       for (const item of completedItems) {
-        archive.file(item.outputPath, { name: item.relativePath || item.fileName });
+        archive.file(item.outputPath, { name: path.basename(item.relativePath || item.fileName || 'file') });
       }
     } else {
       // Fallback: entire default outDir if present

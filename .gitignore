@@ -1,9 +1,9 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Local user data & state
 keys.txt
+proxies.txt
 shortpixel_state.json
 *.tmp
 *.bak

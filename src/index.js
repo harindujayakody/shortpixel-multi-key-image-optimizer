@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -15,6 +14,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const PORT = process.env.PORT || 3000;
+// Bind loopback by default: the dashboard has no auth unless ADMIN_TOKEN is
+// set, so it must never listen on all interfaces. Override with HOST only
+// when you deliberately expose it (and set ADMIN_TOKEN).
+const HOST = process.env.HOST || '127.0.0.1';
 const STATE_FILE = process.env.STATE_FILE || './shortpixel_state.json';
 const KEYS_FILE = './keys.txt';
 const PROXIES_FILE = './proxies.txt';
@@ -55,7 +58,9 @@ keyManager.on('allKeysExhausted', () => {
 // Setup Express App
 const app = express();
 
-app.use(cors());
+// No CORS: the dashboard is served from this same origin, so cross-origin
+// requests are not needed. Opening CORS here used to let any website in the
+// browser call the unauthenticated API.
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -82,14 +87,15 @@ process.on('SIGINT', handleShutdown);
 process.on('SIGTERM', handleShutdown);
 
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, HOST, () => {
   const keys = keyManager.getKeys();
   const usable = keys.filter(k => k.status !== 'EXHAUSTED' && k.status !== 'INVALID').length;
 
   console.log(chalk.green.bold('\n======================================================'));
   console.log(chalk.green.bold('  ShortPixel Multi-Key Image Optimizer & Dashboard'));
   console.log(chalk.green.bold('======================================================'));
-  console.log(chalk.white(`  Web Dashboard : `) + chalk.cyan.bold(`http://localhost:${PORT}`));
+  console.log(chalk.white(`  Web Dashboard : `) + chalk.cyan.bold(`http://${HOST}:${PORT}`));
+  if (!process.env.ADMIN_TOKEN) console.log(chalk.yellow('  Auth          : none — dashboard is local-only (set ADMIN_TOKEN to protect it)'));
   console.log(chalk.white(`  Key Pool Size : `) + chalk.yellow(`${keys.length} keys (${usable} usable)`));
   console.log(chalk.white(`  State File    : `) + chalk.dim(path.resolve(STATE_FILE)));
   console.log(chalk.green.bold('======================================================\n'));

@@ -44,11 +44,31 @@ apiKey3_here
 *(You can also add, test, and remove keys directly from the Web Dashboard).*
 
 ### 3. (Optional) Configure Proxies
-Add proxies to `proxies.txt` or configure them via the Dashboard:
+Copy `proxies.example.txt` to `proxies.txt` and add your own proxies (one per
+line). `proxies.txt` is gitignored — never commit real proxy credentials:
 ```text
 http://user:pass@proxy1.com:8080
 socks5://proxy2.com:1080
 ```
+
+## 🔒 Security
+
+The dashboard holds live ShortPixel API keys, so treat it as a local-only
+tool unless you secure it:
+
+- The server binds `127.0.0.1` by default (`HOST` env var to change it).
+  The API never returns a full key value — the dashboard only ever sees a
+  masked key (`abcd...wxyz`) plus a non-secret id used for refresh/delete.
+  Proxy credentials are stripped from API responses the same way.
+- Set `ADMIN_TOKEN` to require `Authorization: Bearer <token>` (or the
+  `x-admin-token` header) on every `/api` call before exposing the server
+  beyond localhost.
+- Folder scans are restricted to the working directory by default; widen
+  them with `SCAN_ROOTS` (comma-separated allowed roots).
+- `keys.txt`, `proxies.txt` and `shortpixel_state.json` are gitignored and
+  are written with `0600` permissions. **If you ever ran an older version
+  on a shared network, rotate your ShortPixel keys** — earlier versions
+  returned full keys over the unauthenticated API.
 
 ### 4. Start the Studio
 ```bash
